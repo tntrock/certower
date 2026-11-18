@@ -35,6 +35,7 @@ can't automate yet.
 - [REST API](docs/api.md)
 - [Data model](docs/data-model.md)
 - [CA support](docs/ca-support.md)
+- [Testing issuance](docs/testing-issuance.md): Pebble tests, and trying Let's Encrypt with Cloudflare DNS
 
 ## Quick start
 
@@ -52,7 +53,7 @@ Use PostgreSQL 15+ with `-db postgres://user:pass@host/certower` or
 ## Development
 
 ```sh
-go test ./...
+go test ./...   # ACME tests need Pebble, see docs/testing-issuance.md
 # Also run the store tests against PostgreSQL (needs an empty database):
 CERTOWER_TEST_POSTGRES=postgres://... go test ./internal/store
 ```

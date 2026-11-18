@@ -33,6 +33,8 @@ func main() {
 		err = serve(os.Args[2:])
 	case "bootstrap":
 		err = bootstrap(os.Args[2:])
+	case "dev":
+		err = dev(os.Args[2:])
 	case "version":
 		fmt.Printf("certower %s (%s)\n", version.Version, version.Commit)
 	default:
@@ -51,6 +53,7 @@ func usage() {
 commands:
   serve       run the server
   bootstrap   create the first administrator account
+  dev issue   issue one certificate from the command line (for testing)
   version     print version
 
 Run "certower <command> -h" for flags.`)

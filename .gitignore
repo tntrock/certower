@@ -17,3 +17,6 @@
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Output of "certower dev issue" (contains private keys)
+/certower-dev/

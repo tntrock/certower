@@ -31,6 +31,7 @@
 - [REST API](docs/api.md)
 - [資料模型](docs/data-model.md)
 - [CA 支援狀況](docs/ca-support.md)
+- [簽發測試](docs/testing-issuance.md)：Pebble 自動化測試，以及用 Cloudflare DNS 實測 Let's Encrypt
 
 ## 授權
 
