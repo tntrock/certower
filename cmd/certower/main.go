@@ -18,6 +18,7 @@ import (
 
 	"github.com/tntrock/certower/internal/api"
 	"github.com/tntrock/certower/internal/auth"
+	"github.com/tntrock/certower/internal/dnsresolver"
 	"github.com/tntrock/certower/internal/store"
 	"github.com/tntrock/certower/internal/version"
 )
@@ -88,11 +89,15 @@ func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	listen := fs.String("listen", envOr("CERTOWER_LISTEN", ":8080"), "address for the API and web UI (env CERTOWER_LISTEN)")
 	dsn := dbFlag(fs)
+	dnsOpts := dnsFlags(fs)
 	secure := fs.Bool("secure-cookies", os.Getenv("CERTOWER_SECURE_COOKIES") == "true",
 		"mark session cookies Secure; enable behind HTTPS (env CERTOWER_SECURE_COOKIES=true)")
 	fs.Parse(args)
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if err := dnsOpts.apply(log); err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -176,5 +181,28 @@ func bootstrap(args []string) error {
 	st.InsertAudit(ctx, store.AuditEntry{ActorType: "system", ActorID: "bootstrap", Action: "user.create", ObjectType: "user", ObjectID: u.ID})
 
 	fmt.Printf("Created administrator %s\nPassword: %s\n\nStore this password now; it is not shown again.\n", u.Email, password)
+	return nil
+}
+
+type dnsOptions struct {
+	servers *string
+	mode    *string
+}
+
+func dnsFlags(fs *flag.FlagSet) dnsOptions {
+	return dnsOptions{
+		servers: fs.String("dns-resolvers", os.Getenv("CERTOWER_DNS_RESOLVERS"),
+			"comma-separated DNS servers for ACME DNS-01 checks; default: the system's (env CERTOWER_DNS_RESOLVERS)"),
+		mode: fs.String("dns-check", envOr("CERTOWER_DNS_CHECK", string(dnsresolver.ModeAuto)),
+			"how to confirm DNS-01 records: auto, authoritative, or recursive (env CERTOWER_DNS_CHECK)"),
+	}
+}
+
+func (o dnsOptions) apply(log *slog.Logger) error {
+	s, err := dnsresolver.Configure(splitNames(*o.servers), dnsresolver.Mode(*o.mode), log)
+	if err != nil {
+		return err
+	}
+	log.Info("DNS resolvers configured", "servers", s.Servers, "recursiveOnly", s.RecursiveOnly)
 	return nil
 }

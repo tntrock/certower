@@ -59,3 +59,27 @@ Other options:
 | `-key-type rsa-2048` | Key type: `ecdsa-p256`, `ecdsa-p384`, `rsa-2048`, `rsa-3072`, `rsa-4096` |
 | `-ca zerossl -eab-kid <kid>` | A CA that needs EAB. Put the HMAC key in `ACME_EAB_HMAC` |
 | `-directory <url>` | Any ACME directory, e.g. a TWCA endpoint |
+
+## DNS on restricted networks
+
+To confirm that a challenge record is visible, Certower needs DNS servers it
+can reach. By default it uses the operating system's resolvers (on Windows,
+read from the network adapters), skips any that do not answer, and checks
+whether the zone's authoritative servers are reachable directly. Where
+outbound DNS is blocked except to internal resolvers, as on many corporate
+and campus networks, it confirms records through those resolvers instead.
+
+| Flag | Environment | Default |
+|---|---|---|
+| `-dns-resolvers 10.0.0.53,10.0.0.54` | `CERTOWER_DNS_RESOLVERS` | system resolvers |
+| `-dns-check auto\|authoritative\|recursive` | `CERTOWER_DNS_CHECK` | `auto` |
+
+Both `certower serve` and `certower dev issue` accept them.
+
+## Live tests
+
+`CERTOWER_LIVE=1 go test ./internal/plugins/acme -run TestLive` checks the
+real services without any credentials: it registers a Let's Encrypt
+*staging* account, reads Let's Encrypt's ARI window for letsencrypt.org's
+certificate, and confirms the Cloudflare plugin reaches the API and reports
+a rejected token.

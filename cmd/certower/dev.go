@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,7 @@ func devIssue(args []string) error {
 	cfTokenEnv := fs.String("cloudflare-token-env", "CLOUDFLARE_API_TOKEN", "environment variable holding the Cloudflare API token")
 	eabKID := fs.String("eab-kid", "", "External Account Binding key ID")
 	eabHMACEnv := fs.String("eab-hmac-env", "ACME_EAB_HMAC", "environment variable holding the EAB HMAC key")
+	dnsOpts := dnsFlags(fs)
 	fs.Parse(args)
 
 	names := splitNames(*domains)
@@ -53,6 +55,9 @@ func devIssue(args []string) error {
 		return err
 	}
 	ctx := context.Background()
+	if err := dnsOpts.apply(slog.New(slog.NewTextHandler(os.Stderr, nil))); err != nil {
+		return err
+	}
 
 	accountKey, err := loadOrCreate(filepath.Join(*out, "account.key"), acme.GenerateAccountKey)
 	if err != nil {

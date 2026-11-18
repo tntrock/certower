@@ -18,12 +18,12 @@ import (
 
 	"github.com/go-acme/lego/v4/acme/api"
 	"github.com/go-acme/lego/v4/certificate"
-	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
 
 	"github.com/tntrock/certower/internal/capresets"
 	"github.com/tntrock/certower/internal/certutil"
+	"github.com/tntrock/certower/internal/dnsresolver"
 	"github.com/tntrock/certower/internal/policy"
 	"github.com/tntrock/certower/internal/version"
 	"github.com/tntrock/certower/pkg/plugin"
@@ -55,9 +55,6 @@ type Config struct {
 	// CACertificates are extra PEM roots to trust for the ACME server's
 	// TLS, for private CAs such as step-ca.
 	CACertificates string `json:"caCertificates,omitempty"`
-	// DNSResolvers ("host:port") are queried to check that challenge
-	// records have propagated. Defaults to the system resolvers.
-	DNSResolvers []string `json:"dnsResolvers,omitempty"`
 }
 
 // EAB holds External Account Binding credentials from the CA.
@@ -85,8 +82,7 @@ const configSchema = `{
     },
     "agreeToTerms": {"type": "boolean", "const": true, "title": "I agree to the CA's terms of service"},
     "profile": {"type": "string", "title": "Default ACME profile"},
-    "caCertificates": {"type": "string", "title": "Extra trusted roots (PEM)"},
-    "dnsResolvers": {"type": "array", "items": {"type": "string"}, "title": "DNS resolvers for propagation checks"}
+    "caCertificates": {"type": "string", "title": "Extra trusted roots (PEM)"}
   }
 }`
 
@@ -177,10 +173,11 @@ func (u *user) GetEmail() string                        { return u.email }
 func (u *user) GetRegistration() *registration.Resource { return u.reg }
 func (u *user) GetPrivateKey() crypto.PrivateKey        { return u.key }
 
-// client returns a lego client bound to the account, registering it on
-// first use. A new client is made per call because lego clients hold
-// per-request challenge configuration.
-func (i *Issuer) client() (*lego.Client, error) {
+// client returns a lego client bound to the account. With register set, the
+// account is registered (or found by key) on first use; ARI lookups are
+// unauthenticated and skip that. A new client is made per call because lego
+// clients hold per-request challenge configuration.
+func (i *Issuer) client(register bool) (*lego.Client, error) {
 	if i.key == nil {
 		return nil, errors.New("acme: not configured")
 	}
@@ -196,7 +193,7 @@ func (i *Issuer) client() (*lego.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("acme: directory %s: %w", i.cfg.DirectoryURL, err)
 	}
-	if i.reg != nil {
+	if i.reg != nil || !register {
 		return c, nil
 	}
 
@@ -239,17 +236,12 @@ func (i *Issuer) Issue(ctx context.Context, req plugin.IssueRequest, solvers plu
 		return nil, errors.New("acme: a DNS provider is required (only DNS-01 is supported)")
 	}
 
-	c, err := i.client()
+	c, err := i.client(true)
 	if err != nil {
 		return nil, err
 	}
-	opts := []dns01.ChallengeOption{}
-	if len(i.cfg.DNSResolvers) > 0 {
-		opts = append(opts,
-			dns01.AddRecursiveNameservers(i.cfg.DNSResolvers),
-			dns01.DisableAuthoritativeNssPropagationRequirement())
-	}
-	if err := c.Challenge.SetDNS01Provider(solvers.DNS, opts...); err != nil {
+	// Resolvers are process-wide; see internal/dnsresolver.
+	if err := c.Challenge.SetDNS01Provider(solvers.DNS, dnsresolver.ChallengeOptions()...); err != nil {
 		return nil, fmt.Errorf("acme: %w", err)
 	}
 
@@ -282,7 +274,7 @@ func (i *Issuer) Issue(ctx context.Context, req plugin.IssueRequest, solvers plu
 }
 
 func (i *Issuer) Revoke(ctx context.Context, cert []byte, reason int) error {
-	c, err := i.client()
+	c, err := i.client(true)
 	if err != nil {
 		return err
 	}
@@ -299,7 +291,7 @@ func (i *Issuer) RenewalInfo(ctx context.Context, cert []byte) (*plugin.RenewalW
 	if err != nil {
 		return nil, err
 	}
-	c, err := i.client()
+	c, err := i.client(false)
 	if err != nil {
 		return nil, err
 	}

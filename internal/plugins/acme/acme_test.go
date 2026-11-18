@@ -17,6 +17,7 @@ import (
 
 	"github.com/tntrock/certower/internal/certutil"
 	"github.com/tntrock/certower/internal/discovery"
+	"github.com/tntrock/certower/internal/dnsresolver"
 	"github.com/tntrock/certower/internal/policy"
 	"github.com/tntrock/certower/pkg/plugin"
 )
@@ -218,6 +219,10 @@ func requirePebble(t *testing.T) {
 	if env == nil {
 		t.Skip("pebble not available")
 	}
+	// Only the mock DNS server knows the challenge records.
+	if _, err := dnsresolver.Configure([]string{dnsAddr}, dnsresolver.ModeRecursiveOnly, nil); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func newIssuer(t *testing.T, directory string, eab *EAB, profile string) *Issuer {
@@ -234,7 +239,6 @@ func newIssuer(t *testing.T, directory string, eab *EAB, profile string) *Issuer
 		AgreeToTerms:   true,
 		Profile:        profile,
 		CACertificates: env.roots,
-		DNSResolvers:   []string{dnsAddr},
 	})
 	iss := &Issuer{}
 	if err := iss.Configure(context.Background(), cfg); err != nil {
@@ -341,7 +345,7 @@ func TestAccountReuse(t *testing.T) {
 	requirePebble(t)
 	ctx := context.Background()
 	a := newIssuer(t, env.plainURL, nil, "")
-	if _, err := a.client(); err != nil {
+	if _, err := a.client(true); err != nil {
 		t.Fatal(err)
 	}
 	// A second instance with the same key finds the same account.
@@ -350,7 +354,7 @@ func TestAccountReuse(t *testing.T) {
 	if err := b.Configure(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.client(); err != nil {
+	if _, err := b.client(true); err != nil {
 		t.Fatal(err)
 	}
 	if a.reg.URI != b.reg.URI {
