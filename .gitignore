@@ -1,0 +1,19 @@
+# Build output
+/bin/
+/dist/
+*.exe
+
+# Local data
+*.db
+*.db-*
+/data/
+
+# Frontend
+/web/node_modules/
+/web/dist/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
