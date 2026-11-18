@@ -5,213 +5,36 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/go-acme/lego/v4/challenge/dns01"
 
 	"github.com/tntrock/certower/internal/certutil"
 	"github.com/tntrock/certower/internal/discovery"
 	"github.com/tntrock/certower/internal/dnsresolver"
 	"github.com/tntrock/certower/internal/policy"
+	"github.com/tntrock/certower/internal/testutil/pebble"
 	"github.com/tntrock/certower/pkg/plugin"
 )
 
-// These tests run against Pebble, Let's Encrypt's ACME test server, and
-// pebble-challtestsrv, its mock DNS server. Install them with
-//
-//	go install github.com/letsencrypt/pebble/v2/cmd/pebble@latest
-//	go install github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@latest
-//
-// The tests skip when the binaries are not on PATH or in $GOPATH/bin.
+// These tests run against Pebble; see internal/testutil/pebble. They skip
+// when Pebble is not installed.
 
-const (
-	dnsAddr     = "127.0.0.1:18053"
-	challMgmt   = "127.0.0.1:18055"
-	eabKeyID    = "kid-1"
-	eabHMAC     = "zWNDZM6eQGHWpSRTPal5eIUYFTu7EajVIoguysqZ9wG44nMEtx3MUAsUDkMTQ12W"
-	shortLived  = 6 * 24 * time.Hour
-	waitTimeout = 15 * time.Second
-)
-
-type pebbleEnv struct {
-	plainURL string // no EAB
-	eabURL   string // EAB required
-	roots    string // PEM trusted for Pebble's TLS
-}
-
-var env *pebbleEnv
+var env *pebble.Env
 
 func TestMain(m *testing.M) {
 	code := func() int {
-		var cleanup func()
+		var stop func()
 		var err error
-		env, cleanup, err = startPebble()
+		env, stop, err = pebble.Start()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "pebble tests disabled:", err)
-		}
-		if cleanup != nil {
-			defer cleanup()
+		} else {
+			defer stop()
 		}
 		return m.Run()
 	}()
 	os.Exit(code)
-}
-
-func findBinary(name string) (string, error) {
-	if p, err := exec.LookPath(name); err == nil {
-		return p, nil
-	}
-	gopath, err := exec.Command("go", "env", "GOPATH").Output()
-	if err == nil {
-		p := filepath.Join(string(bytes.TrimSpace(gopath)), "bin", name)
-		if _, err := exec.LookPath(p); err == nil {
-			return p, nil
-		}
-	}
-	return "", fmt.Errorf("%s not found", name)
-}
-
-func startPebble() (*pebbleEnv, func(), error) {
-	pebble, err := findBinary("pebble")
-	if err != nil {
-		return nil, nil, err
-	}
-	chall, err := findBinary("pebble-challtestsrv")
-	if err != nil {
-		return nil, nil, err
-	}
-	dir, err := os.MkdirTemp("", "certower-pebble")
-	if err != nil {
-		return nil, nil, err
-	}
-	td, _ := filepath.Abs("testdata")
-	var procs []*exec.Cmd
-	cleanup := func() {
-		for _, p := range procs {
-			p.Process.Kill()
-			p.Wait()
-		}
-		os.RemoveAll(dir)
-	}
-	start := func(bin string, args ...string) error {
-		cmd := exec.Command(bin, args...)
-		cmd.Env = append(os.Environ(), "PEBBLE_VA_NOSLEEP=1", "PEBBLE_WFE_NONCEREJECT=0")
-		cmd.Dir = dir
-		if err := cmd.Start(); err != nil {
-			return err
-		}
-		procs = append(procs, cmd)
-		return nil
-	}
-	writeConfig := func(name, listen, mgmt string, eab bool) (string, error) {
-		pc := map[string]any{
-			"listenAddress":           listen,
-			"managementListenAddress": mgmt,
-			"certificate":             filepath.Join(td, "pebble-localhost.pem"),
-			"privateKey":              filepath.Join(td, "pebble-localhost.key"),
-			"httpPort":                5002,
-			"tlsPort":                 5001,
-			"profiles": map[string]any{
-				"default":    map[string]any{"description": "default", "validityPeriod": 90 * 24 * 3600},
-				"shortlived": map[string]any{"description": "short", "validityPeriod": int(shortLived.Seconds())},
-			},
-		}
-		if eab {
-			pc["externalAccountBindingRequired"] = true
-			pc["externalAccountMACKeys"] = map[string]string{eabKeyID: eabHMAC}
-		}
-		b, _ := json.Marshal(map[string]any{"pebble": pc})
-		path := filepath.Join(dir, name)
-		return path, os.WriteFile(path, b, 0o600)
-	}
-
-	if err := start(chall, "-dnsserver", dnsAddr, "-management", challMgmt,
-		"-http01", "", "-https01", "", "-tlsalpn01", "", "-doh", ""); err != nil {
-		cleanup()
-		return nil, nil, err
-	}
-	plain, err := writeConfig("plain.json", "127.0.0.1:14000", "127.0.0.1:15000", false)
-	if err != nil {
-		cleanup()
-		return nil, nil, err
-	}
-	withEAB, err := writeConfig("eab.json", "127.0.0.1:14001", "127.0.0.1:15001", true)
-	if err != nil {
-		cleanup()
-		return nil, nil, err
-	}
-	for _, cfg := range []string{plain, withEAB} {
-		if err := start(pebble, "-config", cfg, "-dnsserver", dnsAddr); err != nil {
-			cleanup()
-			return nil, nil, err
-		}
-	}
-	for _, addr := range []string{challMgmt, "127.0.0.1:14000", "127.0.0.1:14001"} {
-		if err := waitListening(addr); err != nil {
-			cleanup()
-			return nil, nil, err
-		}
-	}
-	roots, err := os.ReadFile(filepath.Join(td, "pebble-minica.pem"))
-	if err != nil {
-		cleanup()
-		return nil, nil, err
-	}
-	return &pebbleEnv{
-		plainURL: "https://127.0.0.1:14000/dir",
-		eabURL:   "https://127.0.0.1:14001/dir",
-		roots:    string(roots),
-	}, cleanup, nil
-}
-
-func waitListening(addr string) error {
-	deadline := time.Now().Add(waitTimeout)
-	for time.Now().Before(deadline) {
-		if c, err := net.Dial("tcp", addr); err == nil {
-			c.Close()
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("%s did not start listening", addr)
-}
-
-// challDNS is a DNSSolver that writes TXT records into pebble-challtestsrv.
-type challDNS struct{ presented int }
-
-func (c *challDNS) Meta() plugin.Meta {
-	return plugin.Meta{Name: "challtestsrv", Kind: plugin.KindDNS}
-}
-func (c *challDNS) Configure(context.Context, json.RawMessage) error { return nil }
-
-func (c *challDNS) Present(domain, token, keyAuth string) error {
-	info := dns01.GetChallengeInfo(domain, keyAuth)
-	c.presented++
-	return challPost("/set-txt", map[string]string{"host": info.EffectiveFQDN, "value": info.Value})
-}
-
-func (c *challDNS) CleanUp(domain, token, keyAuth string) error {
-	info := dns01.GetChallengeInfo(domain, keyAuth)
-	return challPost("/clear-txt", map[string]string{"host": info.EffectiveFQDN})
-}
-
-func challPost(path string, body any) error {
-	b, _ := json.Marshal(body)
-	resp, err := http.Post("http://"+challMgmt+path, "application/json", bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("challtestsrv %s: %s", path, resp.Status)
-	}
-	return nil
 }
 
 func requirePebble(t *testing.T) {
@@ -220,7 +43,7 @@ func requirePebble(t *testing.T) {
 		t.Skip("pebble not available")
 	}
 	// Only the mock DNS server knows the challenge records.
-	if _, err := dnsresolver.Configure([]string{dnsAddr}, dnsresolver.ModeRecursiveOnly, nil); err != nil {
+	if _, err := dnsresolver.Configure([]string{env.DNSAddr}, dnsresolver.ModeRecursiveOnly, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -238,7 +61,7 @@ func newIssuer(t *testing.T, directory string, eab *EAB, profile string) *Issuer
 		EAB:            eab,
 		AgreeToTerms:   true,
 		Profile:        profile,
-		CACertificates: env.roots,
+		CACertificates: env.Roots,
 	})
 	iss := &Issuer{}
 	if err := iss.Configure(context.Background(), cfg); err != nil {
@@ -264,15 +87,15 @@ func TestIssueRenewRevoke(t *testing.T) {
 	requirePebble(t)
 	ctx := context.Background()
 	// Pebble picks a random profile when none is requested.
-	iss := newIssuer(t, env.plainURL, nil, "default")
-	dns := &challDNS{}
+	iss := newIssuer(t, env.PlainURL, nil, "default")
+	dns := env.NewChallDNS()
 
 	cert, err := iss.Issue(ctx, plugin.IssueRequest{CSR: csrFor(t, "www.example.com", "*.example.com")}, plugin.ChallengeSolvers{DNS: dns})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dns.presented != 2 {
-		t.Errorf("presented %d DNS challenges, want 2", dns.presented)
+	if dns.Presented() != 2 {
+		t.Errorf("presented %d DNS challenges, want 2", dns.Presented())
 	}
 	if len(cert.Chain) < 2 {
 		t.Fatalf("chain has %d certificates, want leaf + intermediate", len(cert.Chain))
@@ -312,13 +135,13 @@ func TestIssueRenewRevoke(t *testing.T) {
 
 func TestProfile(t *testing.T) {
 	requirePebble(t)
-	iss := newIssuer(t, env.plainURL, nil, "shortlived")
-	cert, err := iss.Issue(context.Background(), plugin.IssueRequest{CSR: csrFor(t, "short.example.com")}, plugin.ChallengeSolvers{DNS: &challDNS{}})
+	iss := newIssuer(t, env.PlainURL, nil, "shortlived")
+	cert, err := iss.Issue(context.Background(), plugin.IssueRequest{CSR: csrFor(t, "short.example.com")}, plugin.ChallengeSolvers{DNS: env.NewChallDNS()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if life := cert.NotAfter.Sub(cert.NotBefore); life > shortLived+time.Minute {
-		t.Fatalf("lifetime %s, want about %s from the shortlived profile", life, shortLived)
+	if life := cert.NotAfter.Sub(cert.NotBefore); life > pebble.ShortLived+time.Minute {
+		t.Fatalf("lifetime %s, want about %s from the shortlived profile", life, pebble.ShortLived)
 	}
 }
 
@@ -326,16 +149,16 @@ func TestExternalAccountBinding(t *testing.T) {
 	requirePebble(t)
 	ctx := context.Background()
 	req := plugin.IssueRequest{CSR: csrFor(t, "eab.example.com")}
-	solvers := plugin.ChallengeSolvers{DNS: &challDNS{}}
+	solvers := plugin.ChallengeSolvers{DNS: env.NewChallDNS()}
 
-	if _, err := newIssuer(t, env.eabURL, nil, "").Issue(ctx, req, solvers); err == nil {
+	if _, err := newIssuer(t, env.EABURL, nil, "").Issue(ctx, req, solvers); err == nil {
 		t.Fatal("CA requiring EAB accepted an account without it")
 	}
-	bad := newIssuer(t, env.eabURL, &EAB{KeyID: eabKeyID, HMACKey: "d3JvbmcgaG1hYyBrZXkgd3JvbmcgaG1hYyBrZXk"}, "")
+	bad := newIssuer(t, env.EABURL, &EAB{KeyID: pebble.EABKeyID, HMACKey: "d3JvbmcgaG1hYyBrZXkgd3JvbmcgaG1hYyBrZXk"}, "")
 	if _, err := bad.Issue(ctx, req, solvers); err == nil {
 		t.Fatal("wrong EAB HMAC accepted")
 	}
-	good := newIssuer(t, env.eabURL, &EAB{KeyID: eabKeyID, HMACKey: eabHMAC}, "")
+	good := newIssuer(t, env.EABURL, &EAB{KeyID: pebble.EABKeyID, HMACKey: pebble.EABHMAC}, "")
 	if _, err := good.Issue(ctx, req, solvers); err != nil {
 		t.Fatalf("issue with EAB: %v", err)
 	}
@@ -344,13 +167,13 @@ func TestExternalAccountBinding(t *testing.T) {
 func TestAccountReuse(t *testing.T) {
 	requirePebble(t)
 	ctx := context.Background()
-	a := newIssuer(t, env.plainURL, nil, "")
+	a := newIssuer(t, env.PlainURL, nil, "")
 	if _, err := a.client(true); err != nil {
 		t.Fatal(err)
 	}
 	// A second instance with the same key finds the same account.
 	b := &Issuer{}
-	cfg, _ := json.Marshal(Config{DirectoryURL: env.plainURL, AccountKey: string(mustPEM(t, a)), AgreeToTerms: true, CACertificates: env.roots})
+	cfg, _ := json.Marshal(Config{DirectoryURL: env.PlainURL, AccountKey: string(mustPEM(t, a)), AgreeToTerms: true, CACertificates: env.Roots})
 	if err := b.Configure(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}

@@ -20,3 +20,6 @@ Thumbs.db
 
 # Output of "certower dev issue" (contains private keys)
 /certower-dev/
+
+# Key-encryption key (never commit)
+*.kek

@@ -12,6 +12,8 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
@@ -135,4 +137,24 @@ func ParseChainPEM(data []byte) ([]*x509.Certificate, error) {
 func Fingerprint(der []byte) string {
 	h := sha256.Sum256(der)
 	return hex.EncodeToString(h[:])
+}
+
+// ARICertID returns the RFC 9773 identifier of a certificate: the
+// base64url Authority Key Identifier and DER serial number value, joined
+// by a dot.
+func ARICertID(leaf *x509.Certificate) (string, error) {
+	if len(leaf.AuthorityKeyId) == 0 {
+		return "", errors.New("certutil: certificate has no Authority Key Identifier")
+	}
+	der, err := asn1.Marshal(leaf.SerialNumber)
+	if err != nil {
+		return "", err
+	}
+	// Serial numbers are at most 20 bytes, so the DER length is one byte:
+	// skip the tag and length to keep the value.
+	if len(der) < 3 || der[1]&0x80 != 0 {
+		return "", errors.New("certutil: unexpected serial number encoding")
+	}
+	return base64.RawURLEncoding.EncodeToString(leaf.AuthorityKeyId) + "." +
+		base64.RawURLEncoding.EncodeToString(der[2:]), nil
 }

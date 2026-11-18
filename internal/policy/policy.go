@@ -20,14 +20,16 @@ const (
 	Ed25519   KeyType = "ed25519"
 )
 
-// Policy is attached to a project. Empty lists mean "no restriction".
+// Policy is attached to a project. Empty lists mean "no restriction", but
+// wildcard names are refused unless AllowWildcard is set: a wildcard covers
+// every host in a zone, so it must be an explicit choice.
 type Policy struct {
 	// AllowedNames are name patterns:
 	//   "shop.example.com"   exactly that name
 	//   "*.shop.example.com" any name below shop.example.com, at any depth,
 	//                        including the wildcard "*.shop.example.com"
 	AllowedNames []string `json:"allowedNames"`
-	// AllowedIssuers are issuer configuration IDs.
+	// AllowedIssuers are issuer configuration names.
 	AllowedIssuers  []string  `json:"allowedIssuers"`
 	AllowedKeyTypes []KeyType `json:"allowedKeyTypes"`
 	// AllowWildcard must be true for wildcard names to be requested at all.
@@ -64,7 +66,7 @@ func (p Policy) Check(req Request) []Violation {
 	for _, raw := range req.Names {
 		name := normalize(raw)
 		if strings.HasPrefix(name, "*.") && !p.AllowWildcard {
-			vs = append(vs, Violation{Field: "names", Value: raw, Reason: "wildcard names are not allowed"})
+			vs = append(vs, Violation{Field: "names", Value: raw, Reason: "wildcard names are not allowed; an organization admin can set allowWildcard in the project policy"})
 			continue
 		}
 		if len(p.AllowedNames) > 0 && !p.nameAllowed(name) {

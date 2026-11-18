@@ -1,8 +1,14 @@
 package certutil
 
 import (
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"math/big"
 	"testing"
+	"time"
+
+	legocert "github.com/go-acme/lego/v4/certificate"
 
 	"github.com/tntrock/certower/internal/policy"
 )
@@ -37,5 +43,31 @@ func TestKeysAndCSR(t *testing.T) {
 	}
 	if _, err := GenerateKey("dsa-1024"); err == nil {
 		t.Error("unsupported key type accepted")
+	}
+}
+
+func TestARICertIDMatchesLego(t *testing.T) {
+	caKey, _ := GenerateKey(policy.ECDSAP256)
+	ca := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "CA"}, IsCA: true,
+		BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign, SubjectKeyId: []byte{1, 2, 3, 4},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	caDER, _ := x509.CreateCertificate(rand.Reader, ca, ca, caKey.Public(), caKey)
+	caCert, _ := x509.ParseCertificate(caDER)
+
+	// Serials with the high bit set need a leading zero byte in DER.
+	for _, serial := range []int64{1, 0x7f, 0x80, 0xff00, 1 << 40} {
+		leafKey, _ := GenerateKey(policy.ECDSAP256)
+		tmpl := &x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: "leaf"},
+			NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+		der, _ := x509.CreateCertificate(rand.Reader, tmpl, caCert, leafKey.Public(), caKey)
+		leaf, _ := x509.ParseCertificate(der)
+		got, err := ARICertID(leaf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, _ := legocert.MakeARICertID(leaf)
+		if got != want {
+			t.Errorf("serial %#x: got %s, want %s", serial, got, want)
+		}
 	}
 }

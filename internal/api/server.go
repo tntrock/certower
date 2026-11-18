@@ -15,7 +15,10 @@ import (
 
 	"github.com/tntrock/certower/internal/auth"
 	"github.com/tntrock/certower/internal/capresets"
+	"github.com/tntrock/certower/internal/engine"
+	"github.com/tntrock/certower/internal/pluginconfig"
 	"github.com/tntrock/certower/internal/rbac"
+	"github.com/tntrock/certower/internal/secrets"
 	"github.com/tntrock/certower/internal/store"
 	"github.com/tntrock/certower/internal/version"
 )
@@ -25,8 +28,11 @@ const SessionCookie = "certower_session"
 
 // Server holds the API's dependencies.
 type Server struct {
-	store *store.Store
-	log   *slog.Logger
+	store   *store.Store
+	log     *slog.Logger
+	engine  *engine.Engine
+	configs *pluginconfig.Service
+	vault   *secrets.Vault
 
 	// SessionTTL is how long a login lasts. Default 12h.
 	SessionTTL time.Duration
@@ -35,9 +41,18 @@ type Server struct {
 	SecureCookies bool
 }
 
+// Deps are the services the API uses.
+type Deps struct {
+	Store   *store.Store
+	Log     *slog.Logger
+	Engine  *engine.Engine
+	Configs *pluginconfig.Service
+	Vault   *secrets.Vault
+}
+
 // New returns a Server.
-func New(st *store.Store, log *slog.Logger) *Server {
-	return &Server{store: st, log: log, SessionTTL: 12 * time.Hour}
+func New(d Deps) *Server {
+	return &Server{store: d.Store, log: d.Log, engine: d.Engine, configs: d.Configs, vault: d.Vault, SessionTTL: 12 * time.Hour}
 }
 
 // Handler returns the HTTP handler for the API.
@@ -85,6 +100,25 @@ func (s *Server) Handler() http.Handler {
 	priv("POST /api/v1/orgs/{org}/projects/{project}/service-accounts", s.createServiceAccount)
 	priv("DELETE /api/v1/orgs/{org}/projects/{project}/service-accounts/{sa}", s.deleteServiceAccount)
 	priv("POST /api/v1/orgs/{org}/projects/{project}/service-accounts/{sa}/tokens", s.createToken)
+
+	priv("GET /api/v1/plugins", s.listPlugins)
+	priv("GET /api/v1/orgs/{org}/configs", s.listConfigs)
+	priv("POST /api/v1/orgs/{org}/configs", s.createConfig)
+	priv("DELETE /api/v1/orgs/{org}/configs/{config}", s.deleteConfig)
+	priv("GET /api/v1/orgs/{org}/projects/{project}/configs", s.listConfigs)
+	priv("POST /api/v1/orgs/{org}/projects/{project}/configs", s.createConfig)
+	priv("DELETE /api/v1/orgs/{org}/projects/{project}/configs/{config}", s.deleteConfig)
+
+	priv("GET /api/v1/orgs/{org}/projects/{project}/certificates", s.listCertificates)
+	priv("POST /api/v1/orgs/{org}/projects/{project}/certificates", s.createCertificate)
+	priv("GET /api/v1/orgs/{org}/projects/{project}/certificates/{cert}", s.getCertificate)
+	priv("DELETE /api/v1/orgs/{org}/projects/{project}/certificates/{cert}", s.deleteCertificate)
+	priv("POST /api/v1/orgs/{org}/projects/{project}/certificates/{cert}/renew", s.renewCertificate)
+	priv("POST /api/v1/orgs/{org}/projects/{project}/certificates/{cert}/revoke", s.revokeCertificate)
+	priv("GET /api/v1/orgs/{org}/projects/{project}/certificates/{cert}/versions", s.listVersions)
+	priv("GET /api/v1/orgs/{org}/projects/{project}/certificates/{cert}/versions/{version}/chain.pem", s.downloadChain)
+	priv("GET /api/v1/orgs/{org}/projects/{project}/certificates/{cert}/versions/{version}/key.pem", s.downloadKey)
+	priv("GET /api/v1/orgs/{org}/projects/{project}/jobs", s.listJobs)
 
 	return mux
 }

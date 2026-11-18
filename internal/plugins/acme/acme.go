@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	legoacme "github.com/go-acme/lego/v4/acme"
 	"github.com/go-acme/lego/v4/acme/api"
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/lego"
@@ -115,6 +116,22 @@ func GenerateAccountKey() (string, error) {
 	}
 	p, err := certutil.EncodeKeyPEM(k)
 	return string(p), err
+}
+
+// PrepareConfig generates the account key when none is given.
+func (i *Issuer) PrepareConfig(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, fmt.Errorf("acme: %w", err)
+	}
+	if k, _ := m["accountKey"].(string); k == "" {
+		key, err := GenerateAccountKey()
+		if err != nil {
+			return nil, err
+		}
+		m["accountKey"] = key
+	}
+	return json.Marshal(m)
 }
 
 func (i *Issuer) Configure(ctx context.Context, raw json.RawMessage) error {
@@ -256,6 +273,9 @@ func (i *Issuer) Issue(ctx context.Context, req plugin.IssueRequest, solvers plu
 		ReplacesCertID: req.Replaces,
 	})
 	if err != nil {
+		if isRejection(err) {
+			return nil, fmt.Errorf("%w: %v", plugin.ErrRejected, err)
+		}
 		return nil, fmt.Errorf("acme: obtain certificate: %w", err)
 	}
 
@@ -315,5 +335,26 @@ func ARICertID(cert []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return certificate.MakeARICertID(leaf)
+	return certutil.ARICertID(leaf)
+}
+
+// rejections are ACME problem types (RFC 8555 section 6.7, RFC 8657) that
+// the same request will hit again.
+var rejections = []string{
+	"rejectedIdentifier", "unsupportedIdentifier", "badCSR", "caa",
+	"externalAccountRequired", "badSignatureAlgorithm", "badPublicKey",
+	"unsupportedContact", "invalidProfile",
+}
+
+func isRejection(err error) bool {
+	var p *legoacme.ProblemDetails
+	if !errors.As(err, &p) {
+		return false
+	}
+	for _, r := range rejections {
+		if p.Type == "urn:ietf:params:acme:error:"+r {
+			return true
+		}
+	}
+	return false
 }

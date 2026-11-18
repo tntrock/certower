@@ -19,8 +19,13 @@ import (
 	"github.com/tntrock/certower/internal/api"
 	"github.com/tntrock/certower/internal/auth"
 	"github.com/tntrock/certower/internal/dnsresolver"
+	"github.com/tntrock/certower/internal/engine"
+	"github.com/tntrock/certower/internal/pluginconfig"
+	_ "github.com/tntrock/certower/internal/plugins/all"
+	"github.com/tntrock/certower/internal/secrets"
 	"github.com/tntrock/certower/internal/store"
 	"github.com/tntrock/certower/internal/version"
+	"github.com/tntrock/certower/pkg/plugin"
 )
 
 func main() {
@@ -89,6 +94,9 @@ func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	listen := fs.String("listen", envOr("CERTOWER_LISTEN", ":8080"), "address for the API and web UI (env CERTOWER_LISTEN)")
 	dsn := dbFlag(fs)
+	kekFile := fs.String("kek-file", envOr("CERTOWER_KEK_FILE", "certower.kek"),
+		"key file that encrypts stored secrets; created if missing. Back it up: without it, stored keys and credentials are lost (env CERTOWER_KEK_FILE)")
+	workers := fs.Int("workers", 4, "concurrent issuance jobs")
 	dnsOpts := dnsFlags(fs)
 	secure := fs.Bool("secure-cookies", os.Getenv("CERTOWER_SECURE_COOKIES") == "true",
 		"mark session cookies Secure; enable behind HTTPS (env CERTOWER_SECURE_COOKIES=true)")
@@ -111,7 +119,24 @@ func serve(args []string) error {
 		log.Warn("no users yet: run \"certower bootstrap -email you@example.com\" to create an administrator")
 	}
 
-	apiSrv := api.New(st, log)
+	kek, created, err := secrets.LoadOrCreateLocalKEK(*kekFile)
+	if err != nil {
+		return fmt.Errorf("load key file: %w", err)
+	}
+	if created {
+		log.Warn("created a new key-encryption key; back it up, stored secrets cannot be recovered without it", "file", *kekFile)
+	}
+	vault := &secrets.Vault{Store: st, KEK: kek}
+	configs := &pluginconfig.Service{Store: st, Vault: vault, Registry: plugin.Default}
+	eng := &engine.Engine{Store: st, Vault: vault, Configs: configs, Log: log, Workers: *workers}
+	engineDone := make(chan struct{})
+	go func() {
+		defer close(engineDone)
+		eng.Run(ctx)
+	}()
+	defer func() { <-engineDone }()
+
+	apiSrv := api.New(api.Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault})
 	apiSrv.SecureCookies = *secure
 	srv := &http.Server{
 		Addr:              *listen,

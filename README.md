@@ -48,7 +48,14 @@ go build -o bin/ ./cmd/...
 ```
 
 Use PostgreSQL 15+ with `-db postgres://user:pass@host/certower` or
-`CERTOWER_DB`. Then see the [API reference](docs/api.md).
+`CERTOWER_DB`. Then see the [API reference](docs/api.md#issuing-a-certificate)
+to set up an issuer and request your first certificate.
+
+On first start the server creates `certower.kek`, the key that encrypts
+stored private keys and credentials. **Back it up and restrict access to
+it**: without it, stored secrets cannot be decrypted. On Windows the file
+mode is not enforced, so keep it in a directory only the service account
+can read. Set its location with `-kek-file` or `CERTOWER_KEK_FILE`.
 
 ## Development
 

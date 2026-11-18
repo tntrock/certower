@@ -42,6 +42,13 @@ type Meta struct {
 	ConfigSchema json.RawMessage `json:"configSchema,omitempty"`
 }
 
+// ConfigPreparer is implemented by plugins that fill in generated fields,
+// such as an ACME account key, when a configuration is first created. The
+// result is stored, so it must be deterministic thereafter.
+type ConfigPreparer interface {
+	PrepareConfig(ctx context.Context, config json.RawMessage) (json.RawMessage, error)
+}
+
 // Plugin is the common part of every plugin.
 type Plugin interface {
 	Meta() Meta

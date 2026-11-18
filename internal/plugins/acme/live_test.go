@@ -4,13 +4,17 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/tntrock/certower/internal/certutil"
 	"github.com/tntrock/certower/internal/dnsresolver"
 	"github.com/tntrock/certower/internal/plugins/cloudflare"
+	"github.com/tntrock/certower/internal/policy"
+	"github.com/tntrock/certower/pkg/plugin"
 )
 
 // Live tests talk to real services and run only with CERTOWER_LIVE=1. They
@@ -104,3 +108,23 @@ func TestLiveCloudflareRejectsBadToken(t *testing.T) {
 	}
 	t.Logf("Cloudflare error (expected): %v", err)
 }
+
+func TestLiveRejectionIsPermanent(t *testing.T) {
+	requireLive(t)
+	key, _ := GenerateAccountKey()
+	iss := configured(t, Config{Preset: "letsencrypt-staging", AccountKey: key, AgreeToTerms: true})
+	k, _ := certutil.GenerateKey(policy.ECDSAP256)
+	csr, _ := certutil.CreateCSR(k, []string{"www.example.com"})
+	// Let's Encrypt refuses example.com before any challenge is attempted.
+	_, err := iss.Issue(context.Background(), plugin.IssueRequest{CSR: csr}, plugin.ChallengeSolvers{DNS: noDNS{}})
+	if !errors.Is(err, plugin.ErrRejected) {
+		t.Fatalf("err = %v, want ErrRejected", err)
+	}
+}
+
+type noDNS struct{}
+
+func (noDNS) Meta() plugin.Meta                                { return plugin.Meta{Name: "none", Kind: plugin.KindDNS} }
+func (noDNS) Configure(context.Context, json.RawMessage) error { return nil }
+func (noDNS) Present(string, string, string) error             { return errors.New("unexpected challenge") }
+func (noDNS) CleanUp(string, string, string) error             { return nil }

@@ -12,7 +12,10 @@ import (
 	"testing"
 
 	"github.com/tntrock/certower/internal/auth"
+	"github.com/tntrock/certower/internal/engine"
+	"github.com/tntrock/certower/internal/pluginconfig"
 	"github.com/tntrock/certower/internal/rbac"
+	"github.com/tntrock/certower/internal/secrets"
 	"github.com/tntrock/certower/internal/store"
 )
 
@@ -20,6 +23,7 @@ type env struct {
 	t   *testing.T
 	srv *httptest.Server
 	st  *store.Store
+	eng *engine.Engine
 }
 
 func newEnv(t *testing.T) *env {
@@ -32,9 +36,14 @@ func newEnv(t *testing.T) *env {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(New(st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	kek, _ := secrets.NewLocalKEK(bytes.Repeat([]byte{5}, 32))
+	vault := &secrets.Vault{Store: st, KEK: kek}
+	configs := &pluginconfig.Service{Store: st, Vault: vault, Registry: testRegistry(t)}
+	eng := &engine.Engine{Store: st, Vault: vault, Configs: configs, Log: log}
+	srv := httptest.NewServer(New(Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault}).Handler())
 	t.Cleanup(func() { srv.Close(); st.Close() })
-	return &env{t: t, srv: srv, st: st}
+	return &env{t: t, srv: srv, st: st, eng: eng}
 }
 
 // user creates an account directly in the store and logs it in.

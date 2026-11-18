@@ -61,6 +61,18 @@ certower bootstrap -email admin@example.com
 | GET, POST | `/orgs/{org}/projects/{project}/service-accounts` | `token.manage` |
 | DELETE | `/orgs/{org}/projects/{project}/service-accounts/{sa}` | `token.manage` |
 | POST | `/orgs/{org}/projects/{project}/service-accounts/{sa}/tokens` | `token.manage` |
+| GET | `/plugins` | authenticated |
+| GET | `/orgs/{org}/configs`, `/orgs/{org}/projects/{project}/configs` | any binding; `cert.read` on a project |
+| POST, DELETE | same paths (`.../configs/{id}` for DELETE) | `issuer.manage` and `secret.manage` |
+| GET | `/orgs/{org}/projects/{project}/certificates` | `cert.read` |
+| POST | `/orgs/{org}/projects/{project}/certificates` | `cert.issue` and `secret.use` |
+| GET | `.../certificates/{cert}`, `.../versions` | `cert.read` |
+| DELETE | `.../certificates/{cert}` | `cert.revoke` |
+| POST | `.../certificates/{cert}/renew` | `cert.issue` and `secret.use` |
+| POST | `.../certificates/{cert}/revoke` | `cert.revoke` |
+| GET | `.../versions/{version}/chain.pem` (`current` for the newest) | `cert.read` |
+| GET | `.../versions/{version}/key.pem` | `key.export` (audited) |
+| GET | `/orgs/{org}/projects/{project}/jobs` | `cert.read` |
 
 Unauthenticated: `GET /healthz`, `GET /api/v1/version`, `GET /api/v1/ca-presets`.
 
@@ -81,3 +93,46 @@ curl -X PUT localhost:8080/api/v1/orgs/acme/projects/shop/policy -H "Authorizati
   -H 'Content-Type: application/json' \
   -d '{"allowedNames":["*.shop.example.com"],"allowWildcard":true,"maxValidityDays":100}'
 ```
+
+## Issuing a certificate
+
+Configurations hold an integration's settings. Fields the plugin marks as
+secret (API tokens, EAB keys, the ACME account key) are encrypted when
+saved and always returned as `********`. A configuration created on the
+organization is shared by all its projects; one created on a project
+overrides an organization one with the same name.
+
+```sh
+# An ACME issuer. The account key is generated for you.
+curl -X POST localhost:8080/api/v1/orgs/acme/configs -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{
+    "kind": "issuer", "plugin": "acme", "name": "letsencrypt",
+    "config": {"preset": "letsencrypt", "email": "ops@example.com", "agreeToTerms": true}}'
+
+# Cloudflare DNS for DNS-01 (token needs Zone:Read and DNS:Edit).
+curl -X POST localhost:8080/api/v1/orgs/acme/configs -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{
+    "kind": "dns", "plugin": "cloudflare", "name": "cloudflare",
+    "config": {"apiToken": "..."}}'
+
+# The certificate. Issuance runs in the background; 202 returns the job.
+curl -X POST localhost:8080/api/v1/orgs/acme/projects/shop/certificates -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{
+    "name": "www", "names": ["www.shop.example.com"], "issuer": "letsencrypt", "dns": "cloudflare"}'
+
+curl localhost:8080/api/v1/orgs/acme/projects/shop/certificates/www -H "Authorization: Bearer $TOKEN"
+```
+
+A certificate's `status` is `pending` (never issued), `active`, `failing`
+(the last attempt failed and will be retried, see `lastError`), or
+`invalid` (the policy or the CA refused it; fix the cause and call
+`/renew`). Failed attempts are retried after 1, 2, 4, … minutes, up to
+every 6 hours.
+
+Renewal is automatic. When the CA supports ACME Renewal Information, the
+renewal time is picked inside the window the CA suggests, and the window is
+re-checked every 6 hours, so a CA can pull renewals forward before a mass
+revocation. Otherwise renewal starts when a third of the lifetime remains.
+
+Requests that break the project policy get `422` with the violations.
+Wildcard names need `"allowWildcard": true` in the policy.

@@ -64,6 +64,12 @@ func (e *ManualActionRequired) Error() string {
 // implement.
 var ErrNotSupported = errors.New("operation not supported by plugin")
 
+// ErrRejected marks a request the CA refused for a reason retrying cannot
+// fix, such as a forbidden name or a CAA record. Issuers wrap it
+// (fmt.Errorf("%w: ...", plugin.ErrRejected)); the request then waits for
+// a person instead of being retried.
+var ErrRejected = errors.New("rejected by the certificate authority")
+
 // ChallengeSolvers gives an Issuer access to the challenge solvers the host
 // has configured for this request.
 type ChallengeSolvers struct {
