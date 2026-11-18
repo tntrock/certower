@@ -1,9 +1,6 @@
 package policy
 
-import (
-	"testing"
-	"time"
-)
+import "testing"
 
 func TestCheckNames(t *testing.T) {
 	p := Policy{
@@ -44,13 +41,13 @@ func TestCheckOther(t *testing.T) {
 	p := Policy{
 		AllowedIssuers:  []string{"letsencrypt"},
 		AllowedKeyTypes: []KeyType{ECDSAP256, RSA3072},
-		MaxValidity:     100 * 24 * time.Hour,
+		MaxValidityDays: 100,
 	}
-	ok := Request{Names: []string{"a.example.com"}, IssuerID: "letsencrypt", KeyType: ECDSAP256, Validity: 90 * 24 * time.Hour}
+	ok := Request{Names: []string{"a.example.com"}, IssuerID: "letsencrypt", KeyType: ECDSAP256, ValidityDays: 90}
 	if vs := p.Check(ok); len(vs) != 0 {
 		t.Fatalf("unexpected violations: %v", vs)
 	}
-	bad := Request{Names: []string{"a.example.com"}, IssuerID: "other", KeyType: RSA2048, Validity: 200 * 24 * time.Hour}
+	bad := Request{Names: []string{"a.example.com"}, IssuerID: "other", KeyType: RSA2048, ValidityDays: 200}
 	if vs := p.Check(bad); len(vs) != 3 {
 		t.Fatalf("want 3 violations, got %v", vs)
 	}

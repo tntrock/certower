@@ -2,7 +2,7 @@
 
 The schema lives in
 [`internal/store/migrations/postgres`](../internal/store/migrations/postgres).
-The SQLite migrations mirror it, using JSON text in place of arrays and JSONB.
+The SQLite migrations in `../sqlite` mirror it. Lists are JSON in both.
 
 ```mermaid
 erDiagram

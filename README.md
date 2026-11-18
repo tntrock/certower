@@ -32,20 +32,29 @@ can't automate yet.
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [REST API](docs/api.md)
 - [Data model](docs/data-model.md)
 - [CA support](docs/ca-support.md)
 
-## Building
+## Quick start
 
-Requires Go 1.24+.
+Requires Go 1.26+.
 
 ```sh
 go build -o bin/ ./cmd/...
-./bin/certower serve -listen :8080
+./bin/certower bootstrap -email admin@example.com   # prints a generated password
+./bin/certower serve                                 # SQLite at ./certower.db, port 8080
 ```
+
+Use PostgreSQL 15+ with `-db postgres://user:pass@host/certower` or
+`CERTOWER_DB`. Then see the [API reference](docs/api.md).
+
+## Development
 
 ```sh
 go test ./...
+# Also run the store tests against PostgreSQL (needs an empty database):
+CERTOWER_TEST_POSTGRES=postgres://... go test ./internal/store
 ```
 
 ## License

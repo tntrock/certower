@@ -28,6 +28,7 @@
 ## 文件
 
 - [架構](docs/architecture.md)
+- [REST API](docs/api.md)
 - [資料模型](docs/data-model.md)
 - [CA 支援狀況](docs/ca-support.md)
 

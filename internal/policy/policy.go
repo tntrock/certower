@@ -4,8 +4,8 @@ package policy
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
-	"time"
 )
 
 // KeyType is a private key algorithm and size, e.g. "ecdsa-p256", "rsa-2048".
@@ -32,16 +32,16 @@ type Policy struct {
 	AllowedKeyTypes []KeyType `json:"allowedKeyTypes"`
 	// AllowWildcard must be true for wildcard names to be requested at all.
 	AllowWildcard bool `json:"allowWildcard"`
-	// MaxValidity caps the requested lifetime. Zero means the CA default.
-	MaxValidity time.Duration `json:"maxValidity"`
+	// MaxValidityDays caps the requested lifetime. Zero means the CA default.
+	MaxValidityDays int `json:"maxValidityDays"`
 }
 
 // Request is the part of a certificate request that policy looks at.
 type Request struct {
-	Names    []string
-	IssuerID string
-	KeyType  KeyType
-	Validity time.Duration
+	Names        []string
+	IssuerID     string
+	KeyType      KeyType
+	ValidityDays int
 }
 
 // Violation explains one way a request breaks the policy.
@@ -77,8 +77,8 @@ func (p Policy) Check(req Request) []Violation {
 	if len(p.AllowedKeyTypes) > 0 && !contains(p.AllowedKeyTypes, req.KeyType) {
 		vs = append(vs, Violation{Field: "keyType", Value: string(req.KeyType), Reason: "key type is not allowed"})
 	}
-	if p.MaxValidity > 0 && req.Validity > p.MaxValidity {
-		vs = append(vs, Violation{Field: "validity", Value: req.Validity.String(), Reason: "exceeds maximum " + p.MaxValidity.String()})
+	if p.MaxValidityDays > 0 && req.ValidityDays > p.MaxValidityDays {
+		vs = append(vs, Violation{Field: "validity", Value: strconv.Itoa(req.ValidityDays), Reason: fmt.Sprintf("exceeds maximum of %d days", p.MaxValidityDays)})
 	}
 	return vs
 }

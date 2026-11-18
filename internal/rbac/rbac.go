@@ -1,6 +1,8 @@
 // Package rbac decides who may do what in which organization or project.
 package rbac
 
+import "slices"
+
 // Permission is a single action on a resource type.
 type Permission string
 
@@ -141,11 +143,44 @@ func (a *Authorizer) Allowed(bindings []Binding, perm Permission, res Resource) 
 	return false
 }
 
-// Permissions returns the permissions of a role, for display.
+// Permissions returns the permissions of a role, sorted.
 func (a *Authorizer) Permissions(r Role) []Permission {
 	out := make([]Permission, 0, len(a.roles[r]))
 	for p := range a.roles[r] {
 		out = append(out, p)
 	}
+	slices.Sort(out)
 	return out
+}
+
+// HasRole reports whether r is a built-in or configured custom role.
+func (a *Authorizer) HasRole(r Role) bool {
+	_, ok := a.roles[r]
+	return ok
+}
+
+// BuiltinRoles lists the built-in roles, most privileged first.
+func BuiltinRoles() []Role {
+	return []Role{OrgAdmin, ProjectAdmin, Operator, Viewer, Auditor}
+}
+
+// IsBuiltin reports whether r is a built-in role.
+func IsBuiltin(r Role) bool {
+	_, ok := builtin[r]
+	return ok
+}
+
+// AllPermissions lists every known permission.
+func AllPermissions() []Permission {
+	return []Permission{
+		CertRead, CertIssue, CertRevoke, CertDeploy, KeyExport,
+		TargetManage, AgentManage, IssuerManage, SecretUse, SecretManage,
+		PolicyManage, MemberManage, ProjectManage, TokenManage,
+		DiscoveryRead, DiscoveryManage, AuditRead,
+	}
+}
+
+// IsPermission reports whether p is a known permission.
+func IsPermission(p Permission) bool {
+	return slices.Contains(AllPermissions(), p)
 }
