@@ -104,6 +104,7 @@ func (i *Issuer) Meta() plugin.Meta {
 		Version:      version.Version,
 		Description:  "Any ACME (RFC 8555) certificate authority, with External Account Binding, profiles and ARI.",
 		RunsOn:       plugin.RunsOnServer,
+		RequiresDNS:  true,
 		ConfigSchema: json.RawMessage(configSchema),
 	}
 }
@@ -250,7 +251,7 @@ func (i *Issuer) Issue(ctx context.Context, req plugin.IssueRequest, solvers plu
 		return nil, fmt.Errorf("acme: CSR signature: %w", err)
 	}
 	if solvers.DNS == nil {
-		return nil, errors.New("acme: a DNS provider is required (only DNS-01 is supported)")
+		return nil, fmt.Errorf("%w: acme: a DNS provider is required (only DNS-01 is supported)", plugin.ErrMisconfigured)
 	}
 
 	c, err := i.client(true)

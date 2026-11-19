@@ -73,6 +73,14 @@ certower bootstrap -email admin@example.com
 | GET | `.../versions/{version}/chain.pem` (`current` for the newest) | `cert.read` |
 | GET | `.../versions/{version}/key.pem` | `key.export` (audited) |
 | GET | `/orgs/{org}/projects/{project}/jobs` | `cert.read` |
+| GET | `/orgs/{org}/projects/{project}/agents` | `cert.read` |
+| POST | `/orgs/{org}/projects/{project}/agents` (returns the one-time enrollment command) | `agent.manage` |
+| DELETE | `/orgs/{org}/projects/{project}/agents/{agent}` | `agent.manage` |
+| GET | `/orgs/{org}/projects/{project}/targets` | `cert.read` |
+| POST, DELETE | `/orgs/{org}/projects/{project}/targets` (`/{target}` for DELETE) | `target.manage` |
+| POST | `.../certificates/{cert}/targets` | `cert.deploy` |
+| DELETE | `.../certificates/{cert}/targets/{target}` | `cert.deploy` |
+| GET | `.../certificates/{cert}/deployments` | `cert.read` |
 
 Unauthenticated: `GET /healthz`, `GET /api/v1/version`, `GET /api/v1/ca-presets`.
 
@@ -136,3 +144,11 @@ revocation. Otherwise renewal starts when a third of the lifetime remains.
 
 Requests that break the project policy get `422` with the violations.
 Wildcard names need `"allowWildcard": true` in the policy.
+
+## Keys on agents
+
+Create a certificate with `"keyLocation": "agent"` to keep its private key
+on the host where it is used. Nothing is issued until it is attached to a
+target on an agent; the agent then generates the key and sends a CSR. Such
+a certificate's targets must all be on the same agent. `/renew` asks the
+agent for a new key on its next sync. See [agent.md](agent.md).

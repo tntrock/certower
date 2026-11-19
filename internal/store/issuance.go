@@ -156,32 +156,39 @@ const (
 
 // Certificate is a managed certificate: the desired state renewals keep.
 type Certificate struct {
-	ID               string    `json:"id"`
-	ProjectID        string    `json:"projectId"`
-	Name             string    `json:"name"`
-	Names            []string  `json:"names"`
-	KeyType          string    `json:"keyType"`
-	IssuerConfigID   string    `json:"issuerConfigId"`
-	DNSConfigID      string    `json:"dnsConfigId,omitempty"`
-	Profile          string    `json:"profile,omitempty"`
-	KeyLocation      string    `json:"keyLocation"`
-	RenewBeforeRatio float64   `json:"renewBeforeRatio"`
-	OwnerEmail       string    `json:"ownerEmail,omitempty"`
-	Status           string    `json:"status"`
-	LastError        string    `json:"lastError,omitempty"`
-	CreatedAt        time.Time `json:"createdAt"`
+	ID               string   `json:"id"`
+	ProjectID        string   `json:"projectId"`
+	Name             string   `json:"name"`
+	Names            []string `json:"names"`
+	KeyType          string   `json:"keyType"`
+	IssuerConfigID   string   `json:"issuerConfigId"`
+	DNSConfigID      string   `json:"dnsConfigId,omitempty"`
+	Profile          string   `json:"profile,omitempty"`
+	KeyLocation      string   `json:"keyLocation"`
+	RenewBeforeRatio float64  `json:"renewBeforeRatio"`
+	OwnerEmail       string   `json:"ownerEmail,omitempty"`
+	Status           string   `json:"status"`
+	LastError        string   `json:"lastError,omitempty"`
+	// RenewRequestedAt is set by a manual renewal of an agent-held
+	// certificate; the agent picks it up on its next sync.
+	RenewRequestedAt *time.Time `json:"renewRequestedAt,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
 }
 
 const certCols = `id, project_id, name, names, key_type, issuer_config_id, dns_config_id, profile,
-	key_location, renew_before_ratio, owner_email, status, last_error, created_at`
+	key_location, renew_before_ratio, owner_email, status, last_error, renew_requested_at, created_at`
 
 func scanCert(sc interface{ Scan(...any) error }) (*Certificate, error) {
 	var c Certificate
 	var names string
 	var dnsID, profile, owner, lastErr *string
+	var renewReq sql.NullTime
 	if err := sc.Scan(&c.ID, &c.ProjectID, &c.Name, &names, &c.KeyType, &c.IssuerConfigID, &dnsID, &profile,
-		&c.KeyLocation, &c.RenewBeforeRatio, &owner, &c.Status, &lastErr, &c.CreatedAt); err != nil {
+		&c.KeyLocation, &c.RenewBeforeRatio, &owner, &c.Status, &lastErr, &renewReq, &c.CreatedAt); err != nil {
 		return nil, mapErr(err)
+	}
+	if renewReq.Valid {
+		c.RenewRequestedAt = &renewReq.Time
 	}
 	c.DNSConfigID, c.Profile, c.OwnerEmail, c.LastError = str(dnsID), str(profile), str(owner), str(lastErr)
 	return &c, json.Unmarshal([]byte(names), &c.Names)
@@ -196,9 +203,9 @@ func (s *Store) CreateCertificate(ctx context.Context, c Certificate) (*Certific
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.exec(ctx, `INSERT INTO certificates (`+certCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = s.exec(ctx, `INSERT INTO certificates (`+certCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.ProjectID, c.Name, string(names), c.KeyType, c.IssuerConfigID, nullable(c.DNSConfigID), nullable(c.Profile),
-		c.KeyLocation, c.RenewBeforeRatio, nullable(c.OwnerEmail), c.Status, nil, c.CreatedAt)
+		c.KeyLocation, c.RenewBeforeRatio, nullable(c.OwnerEmail), c.Status, nil, nil, c.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -238,12 +245,13 @@ func (s *Store) DeleteCertificate(ctx context.Context, id string) error {
 	return s.execOne(ctx, `DELETE FROM certificates WHERE id = ?`, id)
 }
 
-// CertificatesDue returns IDs of certificates that need issuing: those with
-// no unrevoked version whose renewal time is still ahead. Invalid
-// certificates are skipped until someone fixes them.
+// CertificatesDue returns IDs of server-key certificates that need issuing:
+// those with no unrevoked version whose renewal time is still ahead. Invalid
+// certificates are skipped until someone fixes them. Agent-key certificates
+// are renewed when their agent sends a CSR.
 func (s *Store) CertificatesDue(ctx context.Context, at time.Time, limit int) ([]string, error) {
 	rows, err := s.query(ctx, `SELECT c.id FROM certificates c
-		WHERE c.status <> ? AND NOT EXISTS (
+		WHERE c.status <> ? AND c.key_location = 'server' AND NOT EXISTS (
 			SELECT 1 FROM certificate_versions v
 			WHERE v.certificate_id = c.id AND v.revoked_at IS NULL AND v.renew_after > ?)
 		ORDER BY c.created_at LIMIT ?`, CertInvalid, at.UTC(), limit)
@@ -519,4 +527,16 @@ func (s *Store) ListJobs(ctx context.Context, projectID string, limit int) ([]Jo
 		out = append(out, *j)
 	}
 	return out, rows.Err()
+}
+
+// RequestRenewal marks an agent-held certificate for renewal on the
+// agent's next sync.
+func (s *Store) RequestRenewal(ctx context.Context, certID string) error {
+	return s.execOne(ctx, `UPDATE certificates SET renew_requested_at = ? WHERE id = ?`, now(), certID)
+}
+
+// OpenJob returns the open job with the given de-duplication key.
+func (s *Store) OpenJob(ctx context.Context, dedupeKey string) (*Job, error) {
+	return scanJob(s.queryRow(ctx, `SELECT `+jobCols+` FROM jobs
+		WHERE dedupe_key = ? AND status IN ('queued', 'running', 'waiting_manual')`, dedupeKey))
 }

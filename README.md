@@ -33,6 +33,7 @@ can't automate yet.
 
 - [Architecture](docs/architecture.md)
 - [REST API](docs/api.md)
+- [Agent](docs/agent.md): install, nginx deployment, security model
 - [Data model](docs/data-model.md)
 - [CA support](docs/ca-support.md)
 - [Testing issuance](docs/testing-issuance.md): Pebble tests, and trying Let's Encrypt with Cloudflare DNS

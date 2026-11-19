@@ -173,6 +173,10 @@ type createCertificateRequest struct {
 	DNS        string   `json:"dns,omitempty"` // DNS configuration name
 	Profile    string   `json:"profile,omitempty"`
 	OwnerEmail string   `json:"ownerEmail,omitempty"`
+	// KeyLocation is "server" (default) or "agent". Agent keys are
+	// generated on the host and never leave it; issuance starts once a
+	// target on an agent is attached.
+	KeyLocation string `json:"keyLocation,omitempty"`
 }
 
 var supportedKeyTypes = []policy.KeyType{policy.ECDSAP256, policy.ECDSAP384, policy.RSA2048, policy.RSA3072, policy.RSA4096}
@@ -213,11 +217,23 @@ func (s *Server) createCertificate(w http.ResponseWriter, r *http.Request, p *pr
 		writeError(w, http.StatusBadRequest, "bad_request", "unsupported keyType "+req.KeyType)
 		return
 	}
+	switch req.KeyLocation {
+	case "":
+		req.KeyLocation = "server"
+	case "server", "agent":
+	default:
+		writeError(w, http.StatusBadRequest, "bad_request", "keyLocation must be server or agent")
+		return
+	}
 
 	ctx := r.Context()
 	issuer, err := s.store.FindPluginConfig(ctx, o.ID, pr.ID, string(plugin.KindIssuer), req.Issuer)
 	if err != nil {
 		s.storeError(w, err, "issuer "+req.Issuer)
+		return
+	}
+	if ip, err := s.configs.Registry.New(plugin.KindIssuer, issuer.Plugin); err == nil && ip.Meta().RequiresDNS && req.DNS == "" {
+		writeError(w, http.StatusBadRequest, "dns_required", "issuer "+issuer.Name+" validates with DNS-01: set dns to a DNS configuration")
 		return
 	}
 	var dnsID string
@@ -246,10 +262,15 @@ func (s *Server) createCertificate(w http.ResponseWriter, r *http.Request, p *pr
 	c, err := s.store.CreateCertificate(ctx, store.Certificate{
 		ProjectID: pr.ID, Name: req.Name, Names: names, KeyType: req.KeyType,
 		IssuerConfigID: issuer.ID, DNSConfigID: dnsID, Profile: req.Profile,
-		KeyLocation: "server", OwnerEmail: req.OwnerEmail,
+		KeyLocation: req.KeyLocation, OwnerEmail: req.OwnerEmail,
 	})
 	if err != nil {
 		s.storeError(w, err, "certificate")
+		return
+	}
+	if c.KeyLocation == "agent" {
+		s.audit(r, p, o.ID, pr.ID, "cert.create", "certificate", c.ID, nil, c)
+		writeJSON(w, http.StatusCreated, map[string]any{"certificate": c})
 		return
 	}
 	job, err := s.engine.RequestIssue(ctx, c)
@@ -334,6 +355,16 @@ func (s *Server) renewCertificate(w http.ResponseWriter, r *http.Request, p *pri
 			s.internal(w, err)
 			return
 		}
+	}
+	if c.KeyLocation == "agent" {
+		// The agent generates the new key and sends a CSR on its next sync.
+		if err := s.store.RequestRenewal(r.Context(), c.ID); err != nil {
+			s.internal(w, err)
+			return
+		}
+		s.audit(r, p, o.ID, pr.ID, "cert.renew", "certificate", c.ID, nil, nil)
+		writeJSON(w, http.StatusAccepted, map[string]string{"waitingFor": "agent"})
+		return
 	}
 	job, err := s.engine.RequestIssue(r.Context(), c)
 	if err != nil {

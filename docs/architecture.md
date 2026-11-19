@@ -21,7 +21,7 @@ at those lifetimes, renewal and deployment must be fully automated.
                  │  Secrets: envelope encryption (pluggable  │
                  │           KEK: local file, Vault, KMS)    │
                  └──────────────┬────────────────────────────┘
-                                │ gRPC over mTLS, agent-initiated
+                                │ HTTPS + JSON, mutual TLS, agent-initiated
              ┌──────────────────┼────────────────────────┐
              ▼                  ▼                        ▼
      certower-agent      certower-agent          server-side connectors
@@ -36,10 +36,13 @@ PostgreSQL for production.
 
 ### Agent (`cmd/certower-agent`)
 
-A single static binary installed on hosts. The agent:
+A single static binary installed on hosts. It talks to the server over
+HTTPS and JSON with mutual TLS (see [agent.md](agent.md)). gRPC was the
+first plan; plain HTTPS needs no code generation, passes through ordinary
+corporate proxies, and is as secure with mutual TLS. The agent:
 
-1. Enrolls with a one-time token and receives its own mTLS client certificate
-   (Certower manages its own agent certificates).
+1. Enrolls with a one-time token, pins the server's private agent CA by
+   fingerprint, and receives its own client certificate from that CA.
 2. Keeps an outbound connection to the server. It never listens for inbound
    connections, so no firewall rules are needed toward hosts.
 3. **Generates private keys locally** and sends only CSRs. Private keys for
@@ -47,6 +50,8 @@ A single static binary installed on hosts. The agent:
 4. Installs the issued certificate, reloads the service, then **verifies the
    live endpoint serves the new certificate** before reporting success. If
    verification fails, it rolls back.
+5. Only writes to directories and runs commands that its own local
+   configuration allows, so a compromised server cannot take over hosts.
 
 ### Connectors
 

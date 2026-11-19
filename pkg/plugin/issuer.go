@@ -64,6 +64,10 @@ func (e *ManualActionRequired) Error() string {
 // implement.
 var ErrNotSupported = errors.New("operation not supported by plugin")
 
+// ErrMisconfigured marks errors only a configuration change can fix,
+// such as a missing DNS provider. Like ErrRejected, it stops retries.
+var ErrMisconfigured = errors.New("misconfigured")
+
 // ErrRejected marks a request the CA refused for a reason retrying cannot
 // fix, such as a forbidden name or a CAA record. Issuers wrap it
 // (fmt.Errorf("%w: ...", plugin.ErrRejected)); the request then waits for

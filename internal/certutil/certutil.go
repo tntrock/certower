@@ -158,3 +158,53 @@ func ARICertID(leaf *x509.Certificate) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(leaf.AuthorityKeyId) + "." +
 		base64.RawURLEncoding.EncodeToString(der[2:]), nil
 }
+
+// EncodeCSRPEM encodes a DER certificate request.
+func EncodeCSRPEM(der []byte) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
+}
+
+// ParseCSRPEM decodes a PEM certificate request.
+func ParseCSRPEM(data []byte) (*x509.CertificateRequest, error) {
+	block, _ := pem.Decode(data)
+	if block == nil || block.Type != "CERTIFICATE REQUEST" {
+		return nil, errors.New("certutil: expected a PEM CERTIFICATE REQUEST")
+	}
+	return x509.ParseCertificateRequest(block.Bytes)
+}
+
+// PublicKeySHA256 is the hex SHA-256 of a public key's SubjectPublicKeyInfo.
+// It matches a certificate to the private key it was issued for.
+func PublicKeySHA256(pub crypto.PublicKey) (string, error) {
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(der)
+	return hex.EncodeToString(h[:]), nil
+}
+
+// KeyTypeOf names the type of a public key.
+func KeyTypeOf(pub crypto.PublicKey) (policy.KeyType, error) {
+	switch k := pub.(type) {
+	case *ecdsa.PublicKey:
+		switch k.Curve {
+		case elliptic.P256():
+			return policy.ECDSAP256, nil
+		case elliptic.P384():
+			return policy.ECDSAP384, nil
+		}
+	case *rsa.PublicKey:
+		switch k.N.BitLen() {
+		case 2048:
+			return policy.RSA2048, nil
+		case 3072:
+			return policy.RSA3072, nil
+		case 4096:
+			return policy.RSA4096, nil
+		}
+	case ed25519.PublicKey:
+		return policy.Ed25519, nil
+	}
+	return "", fmt.Errorf("certutil: unsupported public key %T", pub)
+}

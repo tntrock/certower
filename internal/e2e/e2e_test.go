@@ -140,6 +140,10 @@ func TestACMEThroughAPI(t *testing.T) {
 	}
 	c.call("POST", "/orgs/acme/configs", map[string]any{"kind": "dns", "plugin": "pebble-dns", "name": "dns", "config": map[string]any{}}, 201, nil)
 
+	// ACME needs a DNS provider; refuse up front rather than retry forever.
+	c.call("POST", "/orgs/acme/projects/shop/certificates", map[string]any{
+		"name": "nodns", "names": []string{"shop.example.com"}, "issuer": "pebble",
+	}, 400, nil)
 	c.call("POST", "/orgs/acme/projects/shop/certificates", map[string]any{
 		"name": "shop", "names": []string{"shop.example.com", "*.shop.example.com"}, "issuer": "pebble", "dns": "dns",
 	}, 202, nil)

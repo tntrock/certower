@@ -34,11 +34,14 @@ const (
 // Meta describes a plugin. ConfigSchema is a JSON Schema document that the
 // UI renders as a form and the host validates before calling Configure.
 type Meta struct {
-	Name         string          `json:"name"`
-	Kind         Kind            `json:"kind"`
-	Version      string          `json:"version"`
-	Description  string          `json:"description"`
-	RunsOn       RunsOn          `json:"runsOn"`
+	Name        string `json:"name"`
+	Kind        Kind   `json:"kind"`
+	Version     string `json:"version"`
+	Description string `json:"description"`
+	RunsOn      RunsOn `json:"runsOn"`
+	// RequiresDNS marks issuers that cannot issue without a DNS provider
+	// (ACME with DNS-01).
+	RequiresDNS  bool            `json:"requiresDns,omitempty"`
 	ConfigSchema json.RawMessage `json:"configSchema,omitempty"`
 }
 

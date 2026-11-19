@@ -154,6 +154,8 @@ func (e *Engine) notify() {
 
 type issuePayload struct {
 	CertificateID string `json:"certificateId"`
+	// CSR is the PEM request from the agent, for agent-held keys.
+	CSR string `json:"csr,omitempty"`
 }
 
 // RequestIssue queues issuance (or renewal) of a certificate. At most one
@@ -163,7 +165,7 @@ func (e *Engine) RequestIssue(ctx context.Context, cert *store.Certificate) (*st
 	e.init()
 	payload, _ := json.Marshal(issuePayload{CertificateID: cert.ID})
 	j, _, err := e.Store.EnqueueJob(ctx, store.Job{
-		ProjectID: cert.ProjectID, Type: JobIssue, Payload: payload, DedupeKey: "issue:" + cert.ID,
+		ProjectID: cert.ProjectID, Type: JobIssue, Payload: payload, DedupeKey: IssueDedupeKey(cert.ID),
 	})
 	if err == nil {
 		e.notify()
@@ -304,16 +306,34 @@ func (e *Engine) runIssue(ctx context.Context, j *store.Job) (err error) {
 		}
 	}
 
-	if cert.KeyLocation != "server" {
-		return permanent(fmt.Errorf("key location %q is not supported yet", cert.KeyLocation))
-	}
-	key, err := certutil.GenerateKey(policy.KeyType(cert.KeyType))
-	if err != nil {
-		return permanent(err)
-	}
-	csr, err := certutil.CreateCSR(key, cert.Names)
-	if err != nil {
-		return permanent(err)
+	// keyPEM stays nil for agent-held keys: the server never sees them.
+	var csr, keyPEM []byte
+	switch cert.KeyLocation {
+	case "server":
+		key, err := certutil.GenerateKey(policy.KeyType(cert.KeyType))
+		if err != nil {
+			return permanent(err)
+		}
+		if csr, err = certutil.CreateCSR(key, cert.Names); err != nil {
+			return permanent(err)
+		}
+		if keyPEM, err = certutil.EncodeKeyPEM(key); err != nil {
+			return err
+		}
+	case "agent":
+		if p.CSR == "" {
+			return permanent(errors.New("no CSR: agent-held certificates are issued when their agent sends one"))
+		}
+		parsed, err := certutil.ParseCSRPEM([]byte(p.CSR))
+		if err != nil {
+			return permanent(err)
+		}
+		if err := CheckCSR(parsed, cert); err != nil {
+			return permanent(err)
+		}
+		csr = parsed.Raw
+	default:
+		return permanent(fmt.Errorf("unknown key location %q", cert.KeyLocation))
 	}
 
 	req := plugin.IssueRequest{CSR: csr, Profile: cert.Profile}
@@ -326,7 +346,7 @@ func (e *Engine) runIssue(ctx context.Context, j *store.Job) (err error) {
 	issued, err := issuer.Issue(ctx, req, solvers)
 	if err != nil {
 		var manual *plugin.ManualActionRequired
-		if errors.As(err, &manual) || errors.Is(err, plugin.ErrRejected) {
+		if errors.As(err, &manual) || errors.Is(err, plugin.ErrRejected) || errors.Is(err, plugin.ErrMisconfigured) {
 			// Waits for a person; manual issuance arrives with the manual issuer.
 			return permanent(err)
 		}
@@ -339,19 +359,17 @@ func (e *Engine) runIssue(ctx context.Context, j *store.Job) (err error) {
 	if err != nil {
 		return fmt.Errorf("issuer returned an unparsable certificate: %w", err)
 	}
-	keyPEM, err := certutil.EncodeKeyPEM(key)
-	if err != nil {
-		return err
-	}
-
 	versionID := store.NewID()
 	ariID, _ := certutil.ARICertID(leaf) // empty when the CA sets no AKI
 	err = e.Store.InTx(ctx, func(tx *store.Store) error {
-		keyID, err := e.Vault.WithStore(tx).Put(ctx, project.OrgID, project.ID, "certkey:"+versionID, keyPEM)
-		if err != nil {
-			return err
+		var keyID string
+		if keyPEM != nil {
+			var err error
+			if keyID, err = e.Vault.WithStore(tx).Put(ctx, project.OrgID, project.ID, "certkey:"+versionID, keyPEM); err != nil {
+				return err
+			}
 		}
-		_, err = tx.InsertCertificateVersion(ctx, store.CertificateVersion{
+		_, err := tx.InsertCertificateVersion(ctx, store.CertificateVersion{
 			ID: versionID, CertificateID: cert.ID,
 			Serial: leaf.SerialNumber.Text(16), Fingerprint: certutil.Fingerprint(leaf.Raw), ARICertID: ariID,
 			NotBefore: leaf.NotBefore, NotAfter: leaf.NotAfter,
@@ -501,4 +519,56 @@ func leafDER(chainPEM string) ([]byte, error) {
 		return nil, err
 	}
 	return chain[0].Raw, nil
+}
+
+// RequestIssueWithCSR queues issuance of an agent-held certificate for a
+// CSR from its agent. created is false when a request is already open.
+func (e *Engine) RequestIssueWithCSR(ctx context.Context, cert *store.Certificate, csrPEM string) (job *store.Job, created bool, err error) {
+	e.init()
+	payload, _ := json.Marshal(issuePayload{CertificateID: cert.ID, CSR: csrPEM})
+	job, created, err = e.Store.EnqueueJob(ctx, store.Job{
+		ProjectID: cert.ProjectID, Type: JobIssue, Payload: payload, DedupeKey: IssueDedupeKey(cert.ID),
+	})
+	if err == nil && created {
+		e.notify()
+	}
+	return job, created, err
+}
+
+// IssueDedupeKey identifies the open issuance job of a certificate.
+func IssueDedupeKey(certID string) string { return "issue:" + certID }
+
+// CheckCSR verifies that a CSR from an agent asks for exactly the
+// certificate's names and key type.
+func CheckCSR(csr *x509.CertificateRequest, cert *store.Certificate) error {
+	if err := csr.CheckSignature(); err != nil {
+		return fmt.Errorf("CSR signature: %w", err)
+	}
+	got := map[string]bool{}
+	for _, n := range csr.DNSNames {
+		got[strings.ToLower(n)] = true
+	}
+	for _, ip := range csr.IPAddresses {
+		got[ip.String()] = true
+	}
+	want := map[string]bool{}
+	for _, n := range cert.Names {
+		want[n] = true
+	}
+	if len(got) != len(want) {
+		return fmt.Errorf("CSR names do not match the certificate (%d vs %d)", len(got), len(want))
+	}
+	for n := range want {
+		if !got[n] {
+			return fmt.Errorf("CSR is missing %s", n)
+		}
+	}
+	kt, err := certutil.KeyTypeOf(csr.PublicKey)
+	if err != nil {
+		return err
+	}
+	if string(kt) != cert.KeyType {
+		return fmt.Errorf("CSR key type %s, certificate requires %s", kt, cert.KeyType)
+	}
+	return nil
 }

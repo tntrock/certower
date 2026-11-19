@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tntrock/certower/internal/agentapi"
+	"github.com/tntrock/certower/internal/agentca"
 	"github.com/tntrock/certower/internal/api"
 	"github.com/tntrock/certower/internal/auth"
 	"github.com/tntrock/certower/internal/dnsresolver"
@@ -97,6 +99,11 @@ func serve(args []string) error {
 	kekFile := fs.String("kek-file", envOr("CERTOWER_KEK_FILE", "certower.kek"),
 		"key file that encrypts stored secrets; created if missing. Back it up: without it, stored keys and credentials are lost (env CERTOWER_KEK_FILE)")
 	workers := fs.Int("workers", 4, "concurrent issuance jobs")
+	host, _ := os.Hostname()
+	agentListen := fs.String("agent-listen", envOr("CERTOWER_AGENT_LISTEN", ":8443"),
+		"address of the agent API (mutual TLS); empty disables agents (env CERTOWER_AGENT_LISTEN)")
+	agentURL := fs.String("agent-url", envOr("CERTOWER_AGENT_URL", "https://"+host+":8443"),
+		"agent API URL as agents reach it, shown in enrollment commands (env CERTOWER_AGENT_URL)")
 	dnsOpts := dnsFlags(fs)
 	secure := fs.Bool("secure-cookies", os.Getenv("CERTOWER_SECURE_COOKIES") == "true",
 		"mark session cookies Secure; enable behind HTTPS (env CERTOWER_SECURE_COOKIES=true)")
@@ -136,7 +143,30 @@ func serve(args []string) error {
 	}()
 	defer func() { <-engineDone }()
 
-	apiSrv := api.New(api.Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault})
+	var agentCA *agentca.CA
+	if *agentListen != "" {
+		if agentCA, err = agentca.Load(ctx, st, kek); err != nil {
+			return fmt.Errorf("agent CA: %w", err)
+		}
+		agentSrv := &http.Server{
+			Addr:              *agentListen,
+			Handler:           (&agentapi.Server{Store: st, CA: agentCA, Engine: eng, Log: log}).Handler(),
+			TLSConfig:         agentCA.ServerTLSConfig(),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() {
+			log.Info("agent API listening", "addr", *agentListen, "url", *agentURL, "caSha256", agentCA.Fingerprint())
+			if err := agentSrv.ListenAndServeTLS("", ""); !errors.Is(err, http.ErrServerClosed) {
+				log.Error("agent API stopped", "err", err)
+			}
+		}()
+		go func() {
+			<-ctx.Done()
+			agentSrv.Close()
+		}()
+	}
+
+	apiSrv := api.New(api.Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault, AgentCA: agentCA, AgentURL: *agentURL})
 	apiSrv.SecureCookies = *secure
 	srv := &http.Server{
 		Addr:              *listen,

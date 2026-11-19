@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tntrock/certower/internal/agentca"
 	"github.com/tntrock/certower/internal/auth"
 	"github.com/tntrock/certower/internal/capresets"
 	"github.com/tntrock/certower/internal/engine"
@@ -28,11 +29,13 @@ const SessionCookie = "certower_session"
 
 // Server holds the API's dependencies.
 type Server struct {
-	store   *store.Store
-	log     *slog.Logger
-	engine  *engine.Engine
-	configs *pluginconfig.Service
-	vault   *secrets.Vault
+	store    *store.Store
+	log      *slog.Logger
+	engine   *engine.Engine
+	configs  *pluginconfig.Service
+	vault    *secrets.Vault
+	agentCA  *agentca.CA
+	agentURL string
 
 	// SessionTTL is how long a login lasts. Default 12h.
 	SessionTTL time.Duration
@@ -48,11 +51,15 @@ type Deps struct {
 	Engine  *engine.Engine
 	Configs *pluginconfig.Service
 	Vault   *secrets.Vault
+	// AgentCA and AgentURL enable agent enrollment. AgentURL is the agent
+	// API address agents connect to, e.g. https://certower.example.com:8443.
+	AgentCA  *agentca.CA
+	AgentURL string
 }
 
 // New returns a Server.
 func New(d Deps) *Server {
-	return &Server{store: d.Store, log: d.Log, engine: d.Engine, configs: d.Configs, vault: d.Vault, SessionTTL: 12 * time.Hour}
+	return &Server{store: d.Store, log: d.Log, engine: d.Engine, configs: d.Configs, vault: d.Vault, agentCA: d.AgentCA, agentURL: d.AgentURL, SessionTTL: 12 * time.Hour}
 }
 
 // Handler returns the HTTP handler for the API.
@@ -119,6 +126,16 @@ func (s *Server) Handler() http.Handler {
 	priv("GET /api/v1/orgs/{org}/projects/{project}/certificates/{cert}/versions/{version}/chain.pem", s.downloadChain)
 	priv("GET /api/v1/orgs/{org}/projects/{project}/certificates/{cert}/versions/{version}/key.pem", s.downloadKey)
 	priv("GET /api/v1/orgs/{org}/projects/{project}/jobs", s.listJobs)
+
+	priv("GET /api/v1/orgs/{org}/projects/{project}/agents", s.listAgents)
+	priv("POST /api/v1/orgs/{org}/projects/{project}/agents", s.createAgent)
+	priv("DELETE /api/v1/orgs/{org}/projects/{project}/agents/{agent}", s.deleteAgent)
+	priv("GET /api/v1/orgs/{org}/projects/{project}/targets", s.listTargets)
+	priv("POST /api/v1/orgs/{org}/projects/{project}/targets", s.createTarget)
+	priv("DELETE /api/v1/orgs/{org}/projects/{project}/targets/{target}", s.deleteTarget)
+	priv("POST /api/v1/orgs/{org}/projects/{project}/certificates/{cert}/targets", s.attachTarget)
+	priv("DELETE /api/v1/orgs/{org}/projects/{project}/certificates/{cert}/targets/{target}", s.detachTarget)
+	priv("GET /api/v1/orgs/{org}/projects/{project}/certificates/{cert}/deployments", s.listDeployments)
 
 	return mux
 }
