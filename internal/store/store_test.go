@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,13 +13,16 @@ import (
 )
 
 // openTest opens a fresh migrated database. Set CERTOWER_TEST_POSTGRES to a
-// postgres:// DSN of an empty database to run against PostgreSQL instead.
+// postgres:// DSN to run against PostgreSQL instead; each test then gets its
+// own schema in that database.
 func openTest(t *testing.T) *Store {
 	t.Helper()
 	ctx := context.Background()
 	dsn := os.Getenv("CERTOWER_TEST_POSTGRES")
 	if dsn == "" {
 		dsn = "sqlite:" + filepath.Join(t.TempDir(), "test.db")
+	} else {
+		dsn = postgresSchema(t, dsn)
 	}
 	s, err := Open(ctx, dsn)
 	if err != nil {
@@ -189,4 +193,28 @@ func TestAudit(t *testing.T) {
 	if len(rest) != 1 || string(rest[0].After) != `{"slug":"shop"}` {
 		t.Fatalf("second page = %v", rest)
 	}
+}
+
+// postgresSchema creates a schema for one test, drops it afterwards, and
+// returns a DSN whose connections use it.
+func postgresSchema(t *testing.T, dsn string) string {
+	t.Helper()
+	ctx := context.Background()
+	admin, err := Open(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := "t_" + strings.ReplaceAll(NewID(), "-", "")
+	if _, err := admin.db.ExecContext(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		admin.db.ExecContext(context.Background(), "DROP SCHEMA "+schema+" CASCADE")
+		admin.Close()
+	})
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "search_path=" + schema
 }
