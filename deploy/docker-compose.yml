@@ -1,0 +1,24 @@
+# Certower with SQLite. Start: docker compose up -d
+# Then create the first administrator:
+#   docker compose exec certower certower bootstrap -email you@example.com
+#
+# Back up the certower-data volume, above all certower.kek: without it the
+# stored private keys and credentials cannot be decrypted.
+services:
+  certower:
+    image: ghcr.io/tntrock/certower:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080" # web UI and API; put a TLS reverse proxy in front
+      - "8443:8443" # agent API (mutual TLS); only needed if you use agents
+    environment:
+      # How agents reach the agent API, shown in enrollment commands.
+      CERTOWER_AGENT_URL: https://certower.example.com:8443
+      # Web address used in notification links and for single sign-on.
+      # CERTOWER_PUBLIC_URL: https://certower.example.com
+      # CERTOWER_SECURE_COOKIES: "true"
+    volumes:
+      - certower-data:/data
+
+volumes:
+  certower-data:

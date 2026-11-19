@@ -1,0 +1,40 @@
+# Certower with PostgreSQL. Start: docker compose -f docker-compose.postgres.yml up -d
+# Then: docker compose -f docker-compose.postgres.yml exec certower certower bootstrap -email you@example.com
+#
+# Set POSTGRES_PASSWORD in a .env file next to this one. Back up both the
+# database and the certower-data volume (certower.kek).
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: certower
+      POSTGRES_DB: certower
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "certower"]
+      interval: 5s
+      retries: 20
+
+  certower:
+    image: ghcr.io/tntrock/certower:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    environment:
+      CERTOWER_DB: postgres://certower:${POSTGRES_PASSWORD}@postgres:5432/certower?sslmode=disable
+      CERTOWER_AGENT_URL: https://certower.example.com:8443
+      # CERTOWER_PUBLIC_URL: https://certower.example.com
+      # CERTOWER_SECURE_COOKIES: "true"
+    volumes:
+      - certower-data:/data # holds certower.kek
+
+volumes:
+  postgres-data:
+  certower-data:

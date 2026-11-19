@@ -1,0 +1,137 @@
+# Builds release binaries, archives and Linux packages. The web UI must be
+# built first (cd web && npm ci && npm run build); the release workflow does
+# that. Container images and Windows installers are built by their own jobs
+# in .github/workflows/release.yml.
+#
+# Local test: goreleaser release --snapshot --clean
+version: 2
+project_name: certower
+
+builds:
+  - id: certower
+    main: ./cmd/certower
+    binary: certower
+    env: [CGO_ENABLED=0]
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/tntrock/certower/internal/version.Version={{ .Version }}
+      - -X github.com/tntrock/certower/internal/version.Commit={{ .ShortCommit }}
+  - id: certower-agent
+    main: ./cmd/certower-agent
+    binary: certower-agent
+    env: [CGO_ENABLED=0]
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/tntrock/certower/internal/version.Version={{ .Version }}
+      - -X github.com/tntrock/certower/internal/version.Commit={{ .ShortCommit }}
+
+archives:
+  - id: certower
+    ids: [certower]
+    name_template: "certower_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, README.md, README.zh-TW.md, README.zh-CN.md]
+  - id: certower-agent
+    ids: [certower-agent]
+    name_template: "certower-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE]
+
+nfpms:
+  - id: certower
+    ids: [certower]
+    package_name: certower
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Arch }}"
+    vendor: Certower
+    homepage: https://github.com/tntrock/certower
+    maintainer: Certower <https://github.com/tntrock/certower/issues>
+    description: Self-hosted control tower for TLS certificates.
+    license: AGPL-3.0-only
+    section: admin
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    contents:
+      - src: packaging/linux/certower.service
+        dst: /usr/lib/systemd/system/certower.service
+      - src: packaging/linux/certower.env
+        dst: /etc/certower/certower.env
+        type: config|noreplace
+        file_info:
+          mode: 0640
+          owner: root
+          group: certower
+      - dst: /var/lib/certower
+        type: dir
+        file_info:
+          mode: 0750
+          owner: certower
+          group: certower
+    scripts:
+      preinstall: packaging/linux/server-preinstall.sh
+      postinstall: packaging/linux/server-postinstall.sh
+      preremove: packaging/linux/server-preremove.sh
+  - id: certower-agent
+    ids: [certower-agent]
+    package_name: certower-agent
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Arch }}"
+    vendor: Certower
+    homepage: https://github.com/tntrock/certower
+    maintainer: Certower <https://github.com/tntrock/certower/issues>
+    description: Certower agent; keeps private keys on the host and installs certificates into local services.
+    license: AGPL-3.0-only
+    section: admin
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    contents:
+      - src: packaging/linux/certower-agent.service
+        dst: /usr/lib/systemd/system/certower-agent.service
+      - dst: /var/lib/certower-agent
+        type: dir
+        file_info:
+          mode: 0700
+    scripts:
+      postinstall: packaging/linux/agent-postinstall.sh
+      preremove: packaging/linux/agent-preremove.sh
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^Bump "
+      - "^README"
+
+release:
+  github:
+    owner: tntrock
+    name: certower
+  header: |
+    Certower is in early development: try it, but do not rely on it in production yet.
+
+    **Install**: container image `ghcr.io/tntrock/certower:{{ .Version }}`, Windows installers (`.msi`),
+    Linux packages (`.deb`, `.rpm`) or archives below. See the
+    [administrator guide](https://github.com/tntrock/certower/blob/main/docs/admin-guide.md).

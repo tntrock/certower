@@ -1,0 +1,13 @@
+.git
+.github
+bin
+dist
+web/node_modules
+web/dist
+web/*.tsbuildinfo
+certower-dev
+*.db
+*.db-*
+*.kek
+*.exe
+*.msi

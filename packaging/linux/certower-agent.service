@@ -1,0 +1,19 @@
+[Unit]
+Description=Certower agent
+Documentation=https://github.com/tntrock/certower/blob/main/docs/agent.md
+After=network-online.target
+Wants=network-online.target
+# Starts once "certower-agent enroll" has registered this host.
+ConditionPathExists=/var/lib/certower-agent/agent.json
+
+[Service]
+# Runs as root: it writes certificates into service directories and runs
+# reload commands. What it may touch is limited by allowedPaths and
+# allowedCommands in /var/lib/certower-agent/agent.json.
+ExecStart=/usr/bin/certower-agent run
+Restart=on-failure
+RestartSec=10
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

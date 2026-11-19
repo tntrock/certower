@@ -7,15 +7,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 
 	"github.com/tntrock/certower/internal/agent"
+	"github.com/tntrock/certower/internal/service"
 	"github.com/tntrock/certower/internal/version"
 )
 
@@ -24,12 +22,19 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+	cfg, args := service.ConfigArg(os.Args[2:])
+	if cfg != "" {
+		if err := service.LoadEnvFile(cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "certower-agent: config:", err)
+			os.Exit(1)
+		}
+	}
 	var err error
 	switch os.Args[1] {
 	case "enroll":
-		err = enroll(os.Args[2:])
+		err = enroll(args)
 	case "run":
-		err = run(os.Args[2:])
+		err = run(args)
 	case "version":
 		fmt.Printf("certower-agent %s (%s)\n", version.Version, version.Commit)
 	default:
@@ -101,14 +106,17 @@ func enroll(args []string) error {
 func run(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	state := fs.String("state", defaultStateDir(), "state directory (env CERTOWER_AGENT_STATE)")
+	logPath := fs.String("log-file", os.Getenv("CERTOWER_AGENT_LOG_FILE"), "append logs to this file instead of stderr (env CERTOWER_AGENT_LOG_FILE)")
 	fs.Parse(args)
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	log, logFile, err := service.Logger(*logPath)
+	if err != nil {
+		return fmt.Errorf("log file: %w", err)
+	}
+	defer logFile.Close()
 	a, err := agent.Open(*state, log)
 	if err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return a.Run(ctx)
+	return service.Run("CertowerAgent", a.Run)
 }

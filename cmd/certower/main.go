@@ -9,11 +9,11 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/tntrock/certower/internal/agentapi"
@@ -26,6 +26,7 @@ import (
 	"github.com/tntrock/certower/internal/pluginconfig"
 	_ "github.com/tntrock/certower/internal/plugins/all"
 	"github.com/tntrock/certower/internal/secrets"
+	"github.com/tntrock/certower/internal/service"
 	"github.com/tntrock/certower/internal/store"
 	"github.com/tntrock/certower/internal/version"
 	"github.com/tntrock/certower/pkg/plugin"
@@ -37,14 +38,23 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+	cfg, args := service.ConfigArg(os.Args[2:])
+	if cfg != "" {
+		if err := service.LoadEnvFile(cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "certower: config:", err)
+			os.Exit(1)
+		}
+	}
 	var err error
 	switch os.Args[1] {
 	case "serve":
-		err = serve(os.Args[2:])
+		err = serve(args)
 	case "bootstrap":
-		err = bootstrap(os.Args[2:])
+		err = bootstrap(args)
+	case "healthcheck":
+		err = healthcheck(args)
 	case "dev":
-		err = dev(os.Args[2:])
+		err = dev(args)
 	case "version":
 		fmt.Printf("certower %s (%s)\n", version.Version, version.Commit)
 	default:
@@ -63,8 +73,13 @@ func usage() {
 commands:
   serve       run the server
   bootstrap   create the first administrator account
+  healthcheck exit 0 if the local server answers (for container health checks)
   dev issue   issue one certificate from the command line (for testing)
   version     print version
+
+Every command also takes -config <file> (or env CERTOWER_CONFIG): a file of
+KEY=VALUE lines setting the CERTOWER_* variables the flags read. Real
+environment variables take precedence over the file, and flags over both.
 
 Run "certower <command> -h" for flags.`)
 }
@@ -72,6 +87,15 @@ Run "certower <command> -h" for flags.`)
 // envOr returns the environment variable, or def when unset.
 func envOr(name, def string) string {
 	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return def
+}
+
+// envOrEmpty is envOr, except that a variable set to "" counts, so it can
+// switch a feature off.
+func envOrEmpty(name, def string) string {
+	if v, ok := os.LookupEnv(name); ok {
 		return v
 	}
 	return def
@@ -113,7 +137,7 @@ func serve(args []string) error {
 		"key file that encrypts stored secrets; created if missing. Back it up: without it, stored keys and credentials are lost (env CERTOWER_KEK_FILE)")
 	workers := fs.Int("workers", 4, "concurrent issuance jobs")
 	host, _ := os.Hostname()
-	agentListen := fs.String("agent-listen", envOr("CERTOWER_AGENT_LISTEN", ":8443"),
+	agentListen := fs.String("agent-listen", envOrEmpty("CERTOWER_AGENT_LISTEN", ":8443"),
 		"address of the agent API (mutual TLS); empty disables agents (env CERTOWER_AGENT_LISTEN)")
 	agentURL := fs.String("agent-url", envOr("CERTOWER_AGENT_URL", "https://"+host+":8443"),
 		"agent API URL as agents reach it, shown in enrollment commands (env CERTOWER_AGENT_URL)")
@@ -137,6 +161,7 @@ func serve(args []string) error {
 		"create an account on first sign-in; otherwise users must exist (env CERTOWER_OIDC_AUTO_CREATE=true)")
 	oidcSkipVerified := fs.Bool("oidc-insecure-skip-email-verified", false,
 		"accept emails the provider does not mark verified; only for providers that omit email_verified but verify addresses")
+	logPath := fs.String("log-file", envOr("CERTOWER_LOG_FILE", ""), "append logs to this file instead of stderr (env CERTOWER_LOG_FILE)")
 	fs.Parse(args)
 
 	proxies, err := api.ParseTrustedProxies(*trustedProxies)
@@ -161,14 +186,33 @@ func serve(args []string) error {
 			SkipEmailVerified: *oidcSkipVerified,
 		}
 	}
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	log, logFile, err := service.Logger(*logPath)
+	if err != nil {
+		return fmt.Errorf("log file: %w", err)
+	}
+	defer logFile.Close()
 	if err := dnsOpts.apply(log); err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	return service.Run("Certower", func(ctx context.Context) error {
+		return runServer(ctx, log, serverOptions{
+			dsn: *dsn, kekFile: *kekFile, workers: *workers, agentListen: *agentListen, agentURL: *agentURL,
+			publicURL: *publicURL, scanLinkLocal: *scanLinkLocal, secure: *secure, proxies: proxies, oidc: oidcCfg, listen: *listen,
+		})
+	})
+}
 
-	st, err := openStore(ctx, *dsn)
+type serverOptions struct {
+	dsn, kekFile, agentListen, agentURL, publicURL, listen string
+	workers                                                int
+	scanLinkLocal, secure                                  bool
+	proxies                                                []netip.Prefix
+	oidc                                                   *api.OIDCConfig
+}
+
+func runServer(ctx context.Context, log *slog.Logger, o serverOptions) error {
+
+	st, err := openStore(ctx, o.dsn)
 	if err != nil {
 		return err
 	}
@@ -178,17 +222,17 @@ func serve(args []string) error {
 		log.Warn("no users yet: run \"certower bootstrap -email you@example.com\" to create an administrator")
 	}
 
-	kek, created, err := secrets.LoadOrCreateLocalKEK(*kekFile)
+	kek, created, err := secrets.LoadOrCreateLocalKEK(o.kekFile)
 	if err != nil {
 		return fmt.Errorf("load key file: %w", err)
 	}
 	if created {
-		log.Warn("created a new key-encryption key; back it up, stored secrets cannot be recovered without it", "file", *kekFile)
+		log.Warn("created a new key-encryption key; back it up, stored secrets cannot be recovered without it", "file", o.kekFile)
 	}
 	vault := &secrets.Vault{Store: st, KEK: kek}
 	configs := &pluginconfig.Service{Store: st, Vault: vault, Registry: plugin.Default}
-	eng := &engine.Engine{Store: st, Vault: vault, Configs: configs, Log: log, Workers: *workers,
-		BaseURL: *publicURL, Scanner: &discovery.Scanner{AllowLinkLocal: *scanLinkLocal}}
+	eng := &engine.Engine{Store: st, Vault: vault, Configs: configs, Log: log, Workers: o.workers,
+		BaseURL: o.publicURL, Scanner: &discovery.Scanner{AllowLinkLocal: o.scanLinkLocal}}
 	engineDone := make(chan struct{})
 	go func() {
 		defer close(engineDone)
@@ -197,18 +241,18 @@ func serve(args []string) error {
 	defer func() { <-engineDone }()
 
 	var agentCA *agentca.CA
-	if *agentListen != "" {
+	if o.agentListen != "" {
 		if agentCA, err = agentca.Load(ctx, st, kek); err != nil {
 			return fmt.Errorf("agent CA: %w", err)
 		}
 		agentSrv := &http.Server{
-			Addr:              *agentListen,
+			Addr:              o.agentListen,
 			Handler:           (&agentapi.Server{Store: st, CA: agentCA, Engine: eng, Log: log}).Handler(),
 			TLSConfig:         agentCA.ServerTLSConfig(),
 			ReadHeaderTimeout: 10 * time.Second,
 		}
 		go func() {
-			log.Info("agent API listening", "addr", *agentListen, "url", *agentURL, "caSha256", agentCA.Fingerprint())
+			log.Info("agent API listening", "addr", o.agentListen, "url", o.agentURL, "caSha256", agentCA.Fingerprint())
 			if err := agentSrv.ListenAndServeTLS("", ""); !errors.Is(err, http.ErrServerClosed) {
 				log.Error("agent API stopped", "err", err)
 			}
@@ -219,11 +263,11 @@ func serve(args []string) error {
 		}()
 	}
 
-	apiSrv := api.New(api.Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault, AgentCA: agentCA, AgentURL: *agentURL, OIDC: oidcCfg})
-	apiSrv.SecureCookies = *secure
-	apiSrv.TrustedProxies = proxies
+	apiSrv := api.New(api.Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault, AgentCA: agentCA, AgentURL: o.agentURL, OIDC: o.oidc})
+	apiSrv.SecureCookies = o.secure
+	apiSrv.TrustedProxies = o.proxies
 	srv := &http.Server{
-		Addr:              *listen,
+		Addr:              o.listen,
 		Handler:           withUI(apiSrv.Handler()),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -249,7 +293,7 @@ func serve(args []string) error {
 		srv.Shutdown(shutdown)
 	}()
 
-	log.Info("certower listening", "addr", *listen, "db", st.Dialect(), "version", version.Version)
+	log.Info("certower listening", "addr", o.listen, "db", st.Dialect(), "version", version.Version)
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -323,4 +367,30 @@ func withUI(apiHandler http.Handler) http.Handler {
 	mux.Handle("/healthz", apiHandler)
 	mux.Handle("/", web.Handler())
 	return mux
+}
+
+// healthcheck asks the local server for /healthz. Container images have no
+// curl, so the binary checks itself.
+func healthcheck(args []string) error {
+	fs := flag.NewFlagSet("healthcheck", flag.ExitOnError)
+	listen := envOr("CERTOWER_LISTEN", ":8080")
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return fmt.Errorf("CERTOWER_LISTEN: %w", err)
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	url := fs.String("url", "http://"+net.JoinHostPort(host, port)+"/healthz", "health endpoint")
+	fs.Parse(args)
+	c := &http.Client{Timeout: 5 * time.Second}
+	resp, err := c.Get(*url)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s: %s", *url, resp.Status)
+	}
+	return nil
 }

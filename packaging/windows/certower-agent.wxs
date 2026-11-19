@@ -1,0 +1,67 @@
+<!--
+  Certower agent installer (WiX v5).
+  Build: wix build -arch x64 -d Version=0.1.0 -d BinDir=path\to\exe certower-agent.wxs -o certower-agent.msi
+
+  Installs certower-agent.exe, adds it to PATH, and registers the
+  "CertowerAgent" service with manual start: enroll first, then start it.
+    certower-agent enroll -server https://... -token cwe_... -ca-sha256 ...
+    Set-Service CertowerAgent -StartupType Automatic; Start-Service CertowerAgent
+  The state folder holds private keys, so only SYSTEM and Administrators
+  can read it. Uninstalling keeps it.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Certower Agent"
+           Manufacturer="Certower"
+           Version="$(var.Version)"
+           UpgradeCode="FA3B6BEC-FF7D-4E05-9646-BE4F5BE89305"
+           Scope="perMachine"
+           Compressed="yes">
+    <SummaryInformation Description="Certower agent" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/tntrock/certower" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/tntrock/certower/blob/main/docs/agent.md" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Certower Agent">
+        <Component Id="AgentExe" Bitness="always64">
+          <File Id="AgentExe" Source="$(var.BinDir)\certower-agent.exe" KeyPath="yes" />
+          <File Id="License" Source="LICENSE" Name="LICENSE.txt" />
+          <ServiceInstall Name="CertowerAgent"
+                          DisplayName="Certower Agent"
+                          Description="Installs certificates from Certower into local services"
+                          Type="ownProcess"
+                          Start="demand"
+                          ErrorControl="normal"
+                          Account="LocalSystem"
+                          Arguments="run -log-file &quot;[CommonAppDataFolder]Certower\agent\agent.log&quot;">
+            <ServiceConfigFailureActions OnInstall="yes" ResetPeriod="86400">
+              <Failure Action="restartService" Delay="10000" />
+              <Failure Action="restartService" Delay="30000" />
+              <Failure Action="restartService" Delay="60000" />
+            </ServiceConfigFailureActions>
+          </ServiceInstall>
+          <ServiceControl Id="AgentService" Name="CertowerAgent" Stop="both" Remove="uninstall" Wait="yes" />
+          <Environment Id="Path" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes" Permanent="no" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATAFOLDER" Name="Certower">
+        <Directory Id="AGENTFOLDER" Name="agent">
+          <Component Id="AgentFolder" Permanent="yes" Guid="0C7E2B5A-3F1D-4B8E-A6C2-9D4E5F7A8B21">
+            <CreateFolder>
+              <PermissionEx Sddl="O:BAG:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
+            </CreateFolder>
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Certower Agent">
+      <ComponentRef Id="AgentExe" />
+      <ComponentRef Id="AgentFolder" />
+    </Feature>
+  </Package>
+</Wix>

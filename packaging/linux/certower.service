@@ -1,0 +1,40 @@
+[Unit]
+Description=Certower certificate lifecycle manager
+Documentation=https://github.com/tntrock/certower/blob/main/docs/admin-guide.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=certower
+Group=certower
+EnvironmentFile=/etc/certower/certower.env
+ExecStart=/usr/bin/certower serve
+WorkingDirectory=/var/lib/certower
+Restart=on-failure
+RestartSec=5
+UMask=0027
+
+# Hardening: Certower only needs its data directory and the network.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/certower
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

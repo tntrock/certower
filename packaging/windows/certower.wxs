@@ -1,0 +1,69 @@
+<!--
+  Certower server installer (WiX v5).
+  Build: wix build -arch x64 -d Version=0.1.0 -d BinDir=path\to\exe certower.wxs -o certower.msi
+
+  Installs certower.exe, adds it to PATH, and runs it as the "Certower"
+  Windows service with settings from C:\ProgramData\Certower\certower.env.
+  The data folder is readable only by SYSTEM and Administrators, since it
+  holds the key-encryption key. Uninstalling keeps the data folder.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Certower Server"
+           Manufacturer="Certower"
+           Version="$(var.Version)"
+           UpgradeCode="BD5FC41B-30A9-4E5A-9EAA-ACBDBE553201"
+           Scope="perMachine"
+           Compressed="yes">
+    <SummaryInformation Description="Certower certificate lifecycle manager" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/tntrock/certower" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/tntrock/certower/blob/main/docs/admin-guide.md" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Certower">
+        <Component Id="ServerExe" Bitness="always64">
+          <File Id="CertowerExe" Source="$(var.BinDir)\certower.exe" KeyPath="yes" />
+          <File Id="License" Source="LICENSE" Name="LICENSE.txt" />
+          <ServiceInstall Name="Certower"
+                          DisplayName="Certower"
+                          Description="Certower certificate lifecycle manager"
+                          Type="ownProcess"
+                          Start="auto"
+                          ErrorControl="normal"
+                          Account="LocalSystem"
+                          Arguments="serve -config &quot;[CommonAppDataFolder]Certower\certower.env&quot;">
+            <ServiceConfigFailureActions OnInstall="yes" ResetPeriod="86400">
+              <Failure Action="restartService" Delay="10000" />
+              <Failure Action="restartService" Delay="30000" />
+              <Failure Action="restartService" Delay="60000" />
+            </ServiceConfigFailureActions>
+          </ServiceInstall>
+          <ServiceControl Id="CertowerService" Name="Certower" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+          <Environment Id="Path" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes" Permanent="no" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATAFOLDER" Name="Certower">
+        <!-- Protected ACL: SYSTEM and Administrators only, not inherited. -->
+        <Component Id="DataFolder" Permanent="yes" Guid="6E1E4C1B-6E0A-4E0B-9C2E-1A6D7D9B3C10">
+          <CreateFolder>
+            <PermissionEx Sddl="O:BAG:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
+          </CreateFolder>
+        </Component>
+        <!-- Settings are the administrator's: never replaced or removed. -->
+        <Component Id="ConfigFile" Permanent="yes" NeverOverwrite="yes">
+          <File Id="CertowerEnv" Source="packaging\windows\certower.env" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Certower Server">
+      <ComponentRef Id="ServerExe" />
+      <ComponentRef Id="DataFolder" />
+      <ComponentRef Id="ConfigFile" />
+    </Feature>
+  </Package>
+</Wix>
