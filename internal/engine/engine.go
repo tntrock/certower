@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/tntrock/certower/internal/certutil"
+	"github.com/tntrock/certower/internal/discovery"
 	"github.com/tntrock/certower/internal/pluginconfig"
 	"github.com/tntrock/certower/internal/policy"
 	"github.com/tntrock/certower/internal/secrets"
@@ -47,6 +48,14 @@ type Engine struct {
 	// ARIEvery is how often a certificate's renewal window is re-checked.
 	// Default 6 hours.
 	ARIEvery time.Duration
+	// ScanEvery is how often discovery endpoints are scanned. Default 12h.
+	ScanEvery time.Duration
+	// Scanner scans discovery endpoints. Default: a discovery.Scanner with
+	// default settings.
+	Scanner *discovery.Scanner
+	// BaseURL is the web UI address, used for links in notifications,
+	// e.g. https://certower.example.com. Empty omits links.
+	BaseURL string
 
 	// Now is the clock, replaceable in tests.
 	Now func() time.Time
@@ -73,6 +82,13 @@ func (e *Engine) init() {
 		if e.ARIEvery <= 0 {
 			e.ARIEvery = 6 * time.Hour
 		}
+		if e.ScanEvery <= 0 {
+			e.ScanEvery = 12 * time.Hour
+		}
+		if e.Scanner == nil {
+			e.Scanner = &discovery.Scanner{}
+		}
+		e.BaseURL = strings.TrimSuffix(e.BaseURL, "/")
 		if e.Now == nil {
 			e.Now = time.Now
 		}
@@ -187,6 +203,10 @@ func (e *Engine) RunOne(ctx context.Context) (bool, error) {
 	switch j.Type {
 	case JobIssue:
 		jobErr = e.runIssue(ctx, j)
+	case JobNotify:
+		jobErr = e.runNotify(ctx, j)
+	case JobScan:
+		jobErr = e.runScan(ctx, j)
 	default:
 		jobErr = permanent(fmt.Errorf("unknown job type %q", j.Type))
 	}
@@ -253,15 +273,22 @@ func (e *Engine) runIssue(ctx context.Context, j *store.Job) (err error) {
 		return err
 	}
 
-	// Record the outcome on the certificate for the UI.
+	// Record the outcome on the certificate for the UI, and tell people.
 	defer func() {
 		switch {
 		case err == nil:
 			err = e.Store.SetCertificateStatus(ctx, cert.ID, store.CertActive, "")
+			e.NotifyCertificate(ctx, cert, plugin.EventCertIssued, plugin.SeverityInfo,
+				fmt.Sprintf("%s was issued", cert.Name), fmt.Sprintf("A new certificate for %v was issued.", cert.Names), "")
 		case isPermanent(err):
 			e.Store.SetCertificateStatus(ctx, cert.ID, store.CertInvalid, err.Error())
+			e.NotifyCertificate(ctx, cert, plugin.EventIssueFailed, plugin.SeverityCritical,
+				fmt.Sprintf("%s cannot be issued", cert.Name), "Issuance stopped until the cause is fixed:\n"+err.Error(), "issue_failed:"+j.ID)
 		default:
 			e.Store.SetCertificateStatus(ctx, cert.ID, store.CertFailing, err.Error())
+			// Once per job: later retries are silent.
+			e.NotifyCertificate(ctx, cert, plugin.EventIssueFailed, plugin.SeverityWarning,
+				fmt.Sprintf("%s failed to issue; retrying", cert.Name), "The attempt failed and will be retried:\n"+err.Error(), "issue_failed:"+j.ID)
 		}
 	}()
 
@@ -431,7 +458,13 @@ func (e *Engine) Schedule(ctx context.Context) error {
 			return err
 		}
 	}
-	return e.refreshARI(ctx)
+	if err := e.refreshARI(ctx); err != nil {
+		return err
+	}
+	if err := e.checkExpiry(ctx); err != nil {
+		return err
+	}
+	return e.scheduleScans(ctx)
 }
 
 // refreshARI re-asks CAs for renewal windows. A CA moves a window earlier,

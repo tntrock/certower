@@ -73,6 +73,21 @@ function ObjectFields({ schema, value, onChange, path }: { schema: JSONSchema; v
             </div>
           );
         }
+        if (prop.enum) {
+          return (
+            <div className="field" key={key}>
+              <label htmlFor={id}>{label}</label>
+              <select id={id} value={(value[key] as string | undefined) ?? ""} required={required.has(key)} onChange={(e) => set(key, e.target.value)}>
+                {!required.has(key) && <option value="">{t("Default")}</option>}
+                {prop.enum.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </div>
+          );
+        }
         const multiline = key.toLowerCase().includes("certificates") || key.toLowerCase().includes("pem");
         const common = {
           id,

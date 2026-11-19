@@ -81,6 +81,10 @@ certower bootstrap -email admin@example.com
 | POST | `.../certificates/{cert}/targets` | `cert.deploy` |
 | DELETE | `.../certificates/{cert}/targets/{target}` | `cert.deploy` |
 | GET | `.../certificates/{cert}/deployments` | `cert.read` |
+| GET | `/orgs/{org}/discovery` | `discovery.read` (per endpoint scope) |
+| POST | `/orgs/{org}/discovery` | `discovery.manage` |
+| DELETE, POST | `/orgs/{org}/discovery/{id}`, `.../{id}/scan` | `discovery.manage` |
+| POST | `.../configs/{id}/test` (notifiers) | `issuer.manage` |
 
 Unauthenticated: `GET /healthz`, `GET /api/v1/version`, `GET /api/v1/ca-presets`.
 

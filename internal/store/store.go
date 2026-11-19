@@ -98,7 +98,12 @@ func sqlitePragmas(path string) string {
 	}
 	// _time_format=sqlite stores times as "2006-01-02 15:04:05.999999999-07:00".
 	// All times are UTC, so they also compare correctly as text.
-	p := sep + "_time_format=sqlite&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+	//
+	// _txlock=immediate makes transactions take the write lock at BEGIN. A
+	// deferred transaction that reads and then writes fails at once with
+	// SQLITE_BUSY if another writer committed meanwhile; busy_timeout cannot
+	// help. Taking the lock up front makes concurrent workers wait instead.
+	p := sep + "_time_format=sqlite&_txlock=immediate&_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)"
 	if path != ":memory:" {
 		p += "&_pragma=journal_mode(WAL)"
 	}

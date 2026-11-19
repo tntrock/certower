@@ -82,7 +82,7 @@ func TestTargetsAndDeployments(t *testing.T) {
 	}
 	certs, _ := s.CertificatesForAgent(ctx, a.ID)
 	targets, _ := s.TargetsForCertificate(ctx, c.ID)
-	if len(certs) != 1 || len(targets) != 1 || string(targets[0].Settings) != `{"fullchainPath":"/etc/certower/www.pem"}` {
+	if len(certs) != 1 || len(targets) != 1 || !jsonEqual(t, targets[0].Settings, `{"fullchainPath":"/etc/certower/www.pem"}`) {
 		t.Fatalf("certs %v targets %v", certs, targets)
 	}
 

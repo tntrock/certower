@@ -2,10 +2,14 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -190,7 +194,7 @@ func TestAudit(t *testing.T) {
 		t.Fatalf("ListAudit = %v, %v", page, err)
 	}
 	rest, _ := s.ListAudit(ctx, AuditQuery{OrgID: org.ID, BeforeID: page[1].ID})
-	if len(rest) != 1 || string(rest[0].After) != `{"slug":"shop"}` {
+	if len(rest) != 1 || !jsonEqual(t, rest[0].After, `{"slug":"shop"}`) {
 		t.Fatalf("second page = %v", rest)
 	}
 }
@@ -217,4 +221,52 @@ func postgresSchema(t *testing.T, dsn string) string {
 		sep = "&"
 	}
 	return dsn + sep + "search_path=" + schema
+}
+
+// jsonEqual compares JSON documents semantically: PostgreSQL's JSONB
+// normalizes whitespace and key order.
+func jsonEqual(t *testing.T, got []byte, want string) bool {
+	t.Helper()
+	var a, b any
+	if err := json.Unmarshal(got, &a); err != nil {
+		t.Fatalf("invalid JSON %q: %v", got, err)
+	}
+	json.Unmarshal([]byte(want), &b)
+	return reflect.DeepEqual(a, b)
+}
+
+// TestConcurrentTransactions runs read-then-write transactions from many
+// goroutines, as the engine's workers do. On SQLite, deferred transactions
+// fail with SQLITE_BUSY when a reader tries to become a writer after
+// another writer committed; transactions must take the write lock up front.
+func TestConcurrentTransactions(t *testing.T) {
+	ctx := context.Background()
+	s, org, _ := fixture(t)
+	eps := make([]*DiscoveryEndpoint, 8)
+	for i := range eps {
+		eps[i], _ = s.CreateEndpoint(ctx, DiscoveryEndpoint{OrgID: org.ID, Host: fmt.Sprintf("h%d.example.com", i), Port: 443})
+	}
+	errs := make(chan error, len(eps)*20)
+	var wg sync.WaitGroup
+	for i, ep := range eps {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for n := 0; n < 20; n++ {
+				_, err := s.UpsertDiscovered(ctx, DiscoveredCert{EndpointID: ep.ID, Fingerprint: fmt.Sprintf("fp%d-%d", i, n%3),
+					Subject: "s", Issuer: "i", Names: []string{"x"}, NotBefore: time.Now(), NotAfter: time.Now()})
+				if err == nil {
+					err = s.RecordScan(ctx, ep.ID, "")
+				}
+				if err != nil {
+					errs <- err
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent transaction failed: %v", err)
+	}
 }

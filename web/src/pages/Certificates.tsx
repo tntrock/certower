@@ -72,7 +72,7 @@ export function CertificateList() {
           <Loading />
         ) : !certs.data?.length ? (
           <Empty title={t("No certificates yet")}>
-            <p>{t("Set up an issuer under Issuers & DNS, then request your first certificate.")}</p>
+            <p>{t("Set up an issuer under Integrations, then request your first certificate.")}</p>
             <Link className="btn primary" to={`${ui}/certificates/new`}>
               {t("New certificate")}
             </Link>

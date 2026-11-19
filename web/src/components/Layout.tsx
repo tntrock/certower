@@ -43,7 +43,8 @@ export function Layout() {
             <NavLink to={o("")} end>
               {t("Overview")}
             </NavLink>
-            <NavLink to={o("/configs")}>{t("Issuers & DNS")}</NavLink>
+            <NavLink to={o("/discovery")}>{t("Discovery")}</NavLink>
+            <NavLink to={o("/configs")}>{t("Integrations")}</NavLink>
             <NavLink to={o("/members")}>{t("Members")}</NavLink>
             <NavLink to={o("/audit")}>{t("Audit log")}</NavLink>
           </nav>

@@ -3,10 +3,15 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
+	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,8 +21,10 @@ import (
 	"github.com/tntrock/certower/internal/agentca"
 	"github.com/tntrock/certower/internal/api"
 	"github.com/tntrock/certower/internal/auth"
+	"github.com/tntrock/certower/internal/certutil"
 	"github.com/tntrock/certower/internal/engine"
 	"github.com/tntrock/certower/internal/pluginconfig"
+	"github.com/tntrock/certower/internal/plugins/webhook"
 	"github.com/tntrock/certower/internal/policy"
 	"github.com/tntrock/certower/internal/secrets"
 	"github.com/tntrock/certower/internal/store"
@@ -62,15 +69,15 @@ func TestDemoServer(t *testing.T) {
 	reg := plugin.NewRegistry()
 	reg.Register(func() plugin.Plugin { return &localIssuer{ca: ca} })
 	reg.Register(func() plugin.Plugin { return &flakyCA{localIssuer{ca: ca}} })
+	reg.Register(func() plugin.Plugin { return &webhook.Notifier{} })
 	configs := &pluginconfig.Service{Store: st, Vault: vault, Registry: reg}
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	eng := &engine.Engine{Store: st, Vault: vault, Configs: configs, Log: log, Poll: time.Second}
 	agentCA, _ := agentca.Load(ctx, st, kek)
 	apiH := api.New(api.Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault, AgentCA: agentCA, AgentURL: "https://certower.example.com:8443"}).Handler()
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiH)
 	mux.Handle("/", web.Handler())
-	go eng.Run(ctx)
 
 	hash, _ := auth.HashPassword("demo password 123")
 	admin, _ := st.CreateUser(ctx, "admin@example.com", "Admin", hash, true)
@@ -108,9 +115,42 @@ func TestDemoServer(t *testing.T) {
 	bad := mk("legacy", []string{"legacy.example.org"}, local, "server")
 	_ = bad
 
+	// Discovery: endpoints serving various certificates.
+	serveDemo := func(caCN string, names []string, notBefore time.Time, life time.Duration) int {
+		caKey, _ := certutil.GenerateKey(policy.ECDSAP256)
+		caTmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: caCN}, IsCA: true, BasicConstraintsValid: true,
+			KeyUsage: x509.KeyUsageCertSign, NotBefore: notBefore.Add(-time.Hour), NotAfter: notBefore.Add(10 * 365 * 24 * time.Hour)}
+		caDER, _ := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caKey.Public(), caKey)
+		caCert, _ := x509.ParseCertificate(caDER)
+		key, _ := certutil.GenerateKey(policy.ECDSAP256)
+		tmpl := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: names[0]}, DNSNames: names, NotBefore: notBefore, NotAfter: notBefore.Add(life)}
+		der, _ := x509.CreateCertificate(rand.Reader, tmpl, caCert, key.Public(), caKey)
+		ln, _ := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der, caDER}, PrivateKey: key}}})
+		go serveHandshakes(ln)
+		return ln.Addr().(*net.TCPAddr).Port
+	}
+	now := time.Now()
+	for _, d := range []struct {
+		host      string
+		caCN      string
+		notBefore time.Time
+		life      time.Duration
+	}{
+		{"gov-portal.example.tw", "HiPKI Root CA - G1", time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC), 397 * 24 * time.Hour},
+		{"old-intranet.example.com", "Old Internal CA", now.Add(-400 * 24 * time.Hour), 395 * 24 * time.Hour},
+		{"status.example.com", "Example Issuing CA", now.Add(-30 * 24 * time.Hour), 90 * 24 * time.Hour},
+	} {
+		port := serveDemo(d.caCN, []string{d.host}, d.notBefore, d.life)
+		st.CreateEndpoint(ctx, store.DiscoveryEndpoint{OrgID: org.ID, Host: "127.0.0.1", Port: port, SNI: d.host})
+	}
+	st.CreateEndpoint(ctx, store.DiscoveryEndpoint{OrgID: org.ID, ProjectID: web1.ID, Host: "127.0.0.1", Port: 1, SNI: "legacy-vpn.example.com"})
+	configs.Create(ctx, pluginconfig.CreateRequest{OrgID: org.ID, Kind: plugin.KindNotifier, Plugin: "webhook", Name: "ops-slack",
+		Config: json.RawMessage(`{"url":"https://hooks.example.invalid/demo","format":"slack","minSeverity":"warning"}`)})
+
 	inv, _ := st.CreateAgentInvitation(ctx, web1.ID, "web-01", []byte("demo-token"), time.Now().Add(24*time.Hour))
 	_ = inv
 
+	go eng.Run(ctx) // after seeding, so the first pass sees everything
 	srv := &http.Server{Addr: addr, Handler: mux}
 	t.Logf("demo server on http://%s (admin@example.com / demo password 123)", addr)
 	if err := srv.ListenAndServe(); err != nil {

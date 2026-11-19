@@ -540,3 +540,11 @@ func (s *Store) OpenJob(ctx context.Context, dedupeKey string) (*Job, error) {
 	return scanJob(s.queryRow(ctx, `SELECT `+jobCols+` FROM jobs
 		WHERE dedupe_key = ? AND status IN ('queued', 'running', 'waiting_manual')`, dedupeKey))
 }
+
+// ExpiringVersions returns the current (newest unrevoked) version of every
+// certificate that expires before the given time.
+func (s *Store) ExpiringVersions(ctx context.Context, before time.Time) ([]CertificateVersion, error) {
+	return s.listVersions(ctx, `revoked_at IS NULL AND not_after < ? AND NOT EXISTS (
+		SELECT 1 FROM certificate_versions n WHERE n.certificate_id = certificate_versions.certificate_id
+		AND n.revoked_at IS NULL AND n.created_at > certificate_versions.created_at)`, before.UTC())
+}

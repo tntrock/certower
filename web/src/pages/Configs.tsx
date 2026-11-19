@@ -20,7 +20,7 @@ export function Configs({ scope }: { scope: "org" | "project" }) {
   return (
     <>
       <PageHead
-        title={scope === "org" ? t("Issuers & DNS") : t("Project integrations")}
+        title={scope === "org" ? t("Integrations") : t("Project integrations")}
         sub={
           scope === "org"
             ? t("Shared by every project in the organization.")
@@ -57,7 +57,9 @@ export function Configs({ scope }: { scope: "org" | "project" }) {
                       <b>{c.name}</b>
                     </td>
                     <td>
-                      <Badge kind={c.kind === "issuer" ? "info" : undefined}>{c.kind === "issuer" ? t("Issuer") : c.kind === "dns" ? "DNS" : c.kind}</Badge>
+                      <Badge kind={c.kind === "issuer" ? "info" : c.kind === "notifier" ? "warn" : undefined}>
+                        {c.kind === "issuer" ? t("Issuer") : c.kind === "dns" ? "DNS" : c.kind === "notifier" ? t("Notifications") : c.kind}
+                      </Badge>
                     </td>
                     <td className="mono">{c.plugin}</td>
                     <td className="small mono muted" style={{ maxWidth: 360 }}>
@@ -68,7 +70,17 @@ export function Configs({ scope }: { scope: "org" | "project" }) {
                     </td>
                     <td className="muted">{c.projectId ? t("Project") : t("Organization")}</td>
                     <td className="muted nowrap">{date(c.createdAt)}</td>
-                    <td className="right">
+                    <td className="right nowrap">
+                      {own && c.kind === "notifier" && (
+                        <button
+                          className="small"
+                          onClick={() =>
+                            del.run(() => api.post(`${base}/configs/${c.id}/test`)).then((r) => r !== undefined && alert(t("Test notification sent.")))
+                          }
+                        >
+                          {t("Send test")}
+                        </button>
+                      )}{" "}
                       {own && (
                         <button
                           className="small danger"
@@ -100,7 +112,7 @@ function AddConfigModal({ base, onClose, onDone }: { base: string; onClose: () =
   const { t } = useI18n();
   const plugins = useLoad(() => api.get<Record<string, PluginMeta[]>>("/plugins"), []);
   const presets = useLoad(() => api.get<CAPreset[]>("/ca-presets"), []);
-  const [kind, setKind] = useState<"issuer" | "dns">("issuer");
+  const [kind, setKind] = useState<"issuer" | "dns" | "notifier">("issuer");
   const [pluginName, setPluginName] = useState("");
   const [name, setName] = useState("");
   const [config, setConfig] = useState<Record<string, unknown>>({});
@@ -127,7 +139,7 @@ function AddConfigModal({ base, onClose, onDone }: { base: string; onClose: () =
         <form onSubmit={submit}>
           <ErrorBox error={error} />
           <div className="tabs" role="tablist">
-            {(["issuer", "dns"] as const).map((k) => (
+            {(["issuer", "dns", "notifier"] as const).map((k) => (
               <button
                 type="button"
                 key={k}
@@ -140,7 +152,7 @@ function AddConfigModal({ base, onClose, onDone }: { base: string; onClose: () =
                   setConfig({});
                 }}
               >
-                {k === "issuer" ? t("Certificate authority") : t("DNS provider")}
+                {k === "issuer" ? t("Certificate authority") : k === "dns" ? t("DNS provider") : t("Notifications")}
               </button>
             ))}
           </div>
@@ -164,7 +176,7 @@ function AddConfigModal({ base, onClose, onDone }: { base: string; onClose: () =
             </div>
             <div className="field">
               <label htmlFor="cfgname">{t("Name")} *</label>
-              <input id="cfgname" required pattern={SLUG_PATTERN} value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === "issuer" ? "letsencrypt" : "cloudflare"} />
+              <input id="cfgname" required pattern={SLUG_PATTERN} value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === "issuer" ? "letsencrypt" : kind === "dns" ? "cloudflare" : "ops-email"} />
             </div>
           </div>
           {plugin && <p className="muted small">{plugin.description}</p>}

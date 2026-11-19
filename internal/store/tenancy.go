@@ -138,3 +138,13 @@ func (s *Store) PutPolicy(ctx context.Context, projectID string, p policy.Policy
 		projectID, string(raw), now())
 	return err
 }
+
+func (s *Store) GetOrganization(ctx context.Context, id string) (*Organization, error) {
+	var o Organization
+	err := s.queryRow(ctx, `SELECT id, slug, name, created_at FROM organizations WHERE id = ?`, id).
+		Scan(&o.ID, &o.Slug, &o.Name, &o.CreatedAt)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return &o, nil
+}

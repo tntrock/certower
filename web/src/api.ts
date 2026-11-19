@@ -153,6 +153,7 @@ export interface JSONSchema {
   format?: string;
   const?: unknown;
   minimum?: number;
+  enum?: string[];
   required?: string[];
   properties?: Record<string, JSONSchema>;
   items?: JSONSchema;
@@ -249,4 +250,37 @@ export interface ServiceAccount {
   projectId: string;
   name: string;
   createdAt: string;
+}
+
+export interface Finding {
+  code: string;
+  severity: "info" | "warning" | "critical";
+  message: string;
+}
+
+export interface DiscoveredCert {
+  id: string;
+  fingerprint: string;
+  subject: string;
+  issuer: string;
+  names: string[];
+  notBefore: string;
+  notAfter: string;
+  findings: Finding[];
+  versionId?: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+export interface DiscoveryEndpoint {
+  id: string;
+  orgId: string;
+  projectId?: string;
+  host: string;
+  port: number;
+  sni?: string;
+  lastScannedAt?: string;
+  lastError?: string;
+  certificate?: DiscoveredCert;
+  managed?: { project: string; certificate: string };
 }

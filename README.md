@@ -17,7 +17,7 @@ Public TLS certificate lifetimes are shrinking: 200 days from March 2026,
 scale to that. Certower automates the whole lifecycle and shows you what it
 can't automate yet.
 
-## Features (planned for v0.1)
+## Features
 
 - **Discovery**: scan endpoints, find unmanaged certificates, and flag expiry,
   weak keys, over-long validity, and distrusted roots.
@@ -29,13 +29,17 @@ can't automate yet.
   rolled back on failure.
 - **Organizations, projects, and roles**, with policy guardrails on names,
   CAs, and key types, OIDC single sign-on, and an audit log.
+- **Notifications** by email and webhook (Slack, Mattermost, Google Chat,
+  Discord, or signed JSON): expiry warnings, failures, discovery alerts.
 - **Plugins** for issuers, DNS providers, deployers, and notifiers.
+- **Web UI** in English and Traditional Chinese.
 
 ## Documentation
 
 - [Architecture](docs/architecture.md)
 - [REST API](docs/api.md)
 - [Agent](docs/agent.md): install, nginx deployment, security model
+- [Discovery and notifications](docs/discovery-and-notifications.md)
 - [Data model](docs/data-model.md)
 - [CA support](docs/ca-support.md)
 - [Testing issuance](docs/testing-issuance.md): Pebble tests, and trying Let's Encrypt with Cloudflare DNS

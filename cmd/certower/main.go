@@ -20,6 +20,7 @@ import (
 	"github.com/tntrock/certower/internal/agentca"
 	"github.com/tntrock/certower/internal/api"
 	"github.com/tntrock/certower/internal/auth"
+	"github.com/tntrock/certower/internal/discovery"
 	"github.com/tntrock/certower/internal/dnsresolver"
 	"github.com/tntrock/certower/internal/engine"
 	"github.com/tntrock/certower/internal/pluginconfig"
@@ -105,6 +106,10 @@ func serve(args []string) error {
 		"address of the agent API (mutual TLS); empty disables agents (env CERTOWER_AGENT_LISTEN)")
 	agentURL := fs.String("agent-url", envOr("CERTOWER_AGENT_URL", "https://"+host+":8443"),
 		"agent API URL as agents reach it, shown in enrollment commands (env CERTOWER_AGENT_URL)")
+	publicURL := fs.String("public-url", envOr("CERTOWER_PUBLIC_URL", ""),
+		"web UI address for links in notifications, e.g. https://certower.example.com (env CERTOWER_PUBLIC_URL)")
+	scanLinkLocal := fs.Bool("discovery-allow-link-local", false,
+		"let discovery scan link-local addresses such as 169.254.169.254 (off: blocks cloud metadata probing)")
 	dnsOpts := dnsFlags(fs)
 	secure := fs.Bool("secure-cookies", os.Getenv("CERTOWER_SECURE_COOKIES") == "true",
 		"mark session cookies Secure; enable behind HTTPS (env CERTOWER_SECURE_COOKIES=true)")
@@ -136,7 +141,8 @@ func serve(args []string) error {
 	}
 	vault := &secrets.Vault{Store: st, KEK: kek}
 	configs := &pluginconfig.Service{Store: st, Vault: vault, Registry: plugin.Default}
-	eng := &engine.Engine{Store: st, Vault: vault, Configs: configs, Log: log, Workers: *workers}
+	eng := &engine.Engine{Store: st, Vault: vault, Configs: configs, Log: log, Workers: *workers,
+		BaseURL: *publicURL, Scanner: &discovery.Scanner{AllowLinkLocal: *scanLinkLocal}}
 	engineDone := make(chan struct{})
 	go func() {
 		defer close(engineDone)

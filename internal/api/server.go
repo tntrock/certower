@@ -127,6 +127,13 @@ func (s *Server) Handler() http.Handler {
 	priv("GET /api/v1/orgs/{org}/projects/{project}/certificates/{cert}/versions/{version}/key.pem", s.downloadKey)
 	priv("GET /api/v1/orgs/{org}/projects/{project}/jobs", s.listJobs)
 
+	priv("GET /api/v1/orgs/{org}/discovery", s.listDiscovery)
+	priv("POST /api/v1/orgs/{org}/discovery", s.addDiscovery)
+	priv("DELETE /api/v1/orgs/{org}/discovery/{id}", s.deleteDiscovery)
+	priv("POST /api/v1/orgs/{org}/discovery/{id}/scan", s.scanNow)
+	priv("POST /api/v1/orgs/{org}/configs/{config}/test", s.testNotifier)
+	priv("POST /api/v1/orgs/{org}/projects/{project}/configs/{config}/test", s.testNotifier)
+
 	priv("GET /api/v1/orgs/{org}/projects/{project}/agents", s.listAgents)
 	priv("POST /api/v1/orgs/{org}/projects/{project}/agents", s.createAgent)
 	priv("DELETE /api/v1/orgs/{org}/projects/{project}/agents/{agent}", s.deleteAgent)

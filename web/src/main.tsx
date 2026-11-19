@@ -7,6 +7,7 @@ import { Agents } from "./pages/Agents";
 import { Audit, Jobs, Members, PolicyPage } from "./pages/Admin";
 import { CertificateDetail, CertificateList, NewCertificate } from "./pages/Certificates";
 import { Configs } from "./pages/Configs";
+import { Discovery } from "./pages/Discovery";
 import { Login } from "./pages/Login";
 import { Home, OrgOverview } from "./pages/Org";
 import { SessionGate } from "./session";
@@ -20,6 +21,7 @@ function App() {
           <Route index element={<Home />} />
           <Route path="o/:org" element={<OrgOverview />} />
           <Route path="o/:org/configs" element={<Configs scope="org" />} />
+          <Route path="o/:org/discovery" element={<Discovery />} />
           <Route path="o/:org/members" element={<Members scope="org" />} />
           <Route path="o/:org/audit" element={<Audit />} />
           <Route path="o/:org/p/:project" element={<CertificateList />} />

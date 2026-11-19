@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/tntrock/certower/internal/certutil"
 	"github.com/tntrock/certower/internal/engine"
 	"github.com/tntrock/certower/internal/store"
+	"github.com/tntrock/certower/pkg/plugin"
 )
 
 // EnrollPrefix marks agent enrollment tokens.
@@ -289,6 +291,11 @@ func (s *Server) recordReports(ctx context.Context, a *store.Agent, certs map[st
 		}
 		s.audit(ctx, a, s.orgOf(ctx, a.ProjectID), action, "certificate", c.ID,
 			map[string]string{"version": rep.VersionID, "target": rep.TargetID, "message": rep.Message})
+		if !rep.OK {
+			s.Engine.NotifyCertificate(ctx, c, plugin.EventDeployFailed, plugin.SeverityWarning,
+				fmt.Sprintf("%s failed to deploy on %s", c.Name, a.Name), rep.Message,
+				"deploy_failed:"+rep.VersionID+":"+rep.TargetID)
+		}
 	}
 	return nil
 }

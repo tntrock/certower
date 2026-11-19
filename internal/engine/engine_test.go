@@ -121,13 +121,14 @@ func (fakeDNS) Present(string, string, string) error             { return nil }
 func (fakeDNS) CleanUp(string, string, string) error             { return nil }
 
 type testEnv struct {
-	e    *Engine
-	ca   *fakeCA
-	st   *store.Store
-	org  *store.Organization
-	proj *store.Project
-	iss  *store.PluginConfig
-	dns  *store.PluginConfig
+	notes *recorder
+	e     *Engine
+	ca    *fakeCA
+	st    *store.Store
+	org   *store.Organization
+	proj  *store.Project
+	iss   *store.PluginConfig
+	dns   *store.PluginConfig
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -145,6 +146,8 @@ func newTestEnv(t *testing.T) *testEnv {
 	reg := plugin.NewRegistry()
 	reg.Register(func() plugin.Plugin { return &fakeIssuer{ca: ca} })
 	reg.Register(func() plugin.Plugin { return fakeDNS{} })
+	notes := &recorder{}
+	reg.Register(func() plugin.Plugin { return &recordingNotifier{r: notes} })
 	kek, _ := secrets.NewLocalKEK(bytes.Repeat([]byte{3}, 32))
 	vault := &secrets.Vault{Store: st, KEK: kek}
 	configs := &pluginconfig.Service{Store: st, Vault: vault, Registry: reg}
@@ -163,7 +166,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		// Retries become due immediately: the store compares with the real
 		// clock, the engine schedules from this one.
 		Now: func() time.Time { return time.Now().Add(-24 * time.Hour) }}
-	return &testEnv{e: e, ca: ca, st: st, org: org, proj: proj, iss: iss, dns: dns}
+	return &testEnv{notes: notes, e: e, ca: ca, st: st, org: org, proj: proj, iss: iss, dns: dns}
 }
 
 func (te *testEnv) cert(t *testing.T, names ...string) *store.Certificate {
