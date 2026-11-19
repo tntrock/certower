@@ -3,7 +3,7 @@
 # Certower server image. Build: docker build -t certower .
 # Data (database and key-encryption key) lives in the /data volume.
 
-FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:26-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
