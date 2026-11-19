@@ -48,21 +48,43 @@
 
 ## 快速开始
 
-需要 Go 1.26+ 和 Node.js 22+。
+**容器：**
+
+```sh
+docker run -d --name certower -p 8080:8080 -p 8443:8443 -v certower-data:/data ghcr.io/tntrock/certower:latest
+docker exec certower certower bootstrap -email you@example.com   # 会输出自动生成的密码
+```
+
+打开 http://localhost:8080 登录即可。
+
+**其他安装方式**，请从 [Releases 页面](https://github.com/tntrock/certower/releases)下载：
+
+| 平台 | 安装包 |
+|---|---|
+| Windows | `.msi` 安装程序，以 Windows 服务运行 |
+| Debian、Ubuntu | `.deb`，附带 systemd 服务 |
+| RHEL、Rocky、Fedora、openEuler | `.rpm`，附带 systemd 服务 |
+| 其他 | `.tar.gz`／`.zip` 可执行文件；Docker Compose 示例位于 [`deploy/`](deploy) |
+
+然后请参阅[管理员手册](docs/zh-CN/admin-guide.md)（HTTPS、备份、密钥加密密钥）和[用户手册](docs/zh-CN/user-guide.md#快速开始)（申请第一张证书）。
+
+**从源码构建**（Go 1.26+、Node.js 22+）：
 
 ```sh
 (cd web && npm ci && npm run build)   # Web 界面会打包进可执行文件
 go build -o bin/ ./cmd/...
-./bin/certower bootstrap -email admin@example.com   # 会输出自动生成的密码
-./bin/certower serve                                 # 界面和 API：http://localhost:8080
+./bin/certower bootstrap -email admin@example.com
+./bin/certower serve
 ```
 
 界面会根据浏览器语言自动选择，也可以在登录页或侧边栏底部随时切换。
 
 ## 文档
 
-以下文档目前为英文。
+用户手册和管理员手册提供中文版，其余文档目前为英文。
 
+- [用户手册](docs/zh-CN/user-guide.md)：申请、续期、部署证书，证书发现与通知
+- [管理员手册](docs/zh-CN/admin-guide.md)：安装（容器、Windows、Linux）、配置、HTTPS、备份、升级
 - [架构](docs/architecture.md)
 - [REST API](docs/api.md)
 - [登录与认证](docs/authentication.md)：OIDC 单点登录、登录失败次数限制、反向代理

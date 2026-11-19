@@ -50,6 +50,8 @@ can't automate yet.
 
 ## Documentation
 
+- [User guide](docs/user-guide.md): requesting, renewing and deploying certificates, discovery, notifications
+- [Administrator guide](docs/admin-guide.md): install (container, Windows, Linux), configuration, HTTPS, backup, upgrade
 - [Architecture](docs/architecture.md)
 - [REST API](docs/api.md)
 - [Authentication](docs/authentication.md): single sign-on (OIDC), login rate limiting, proxies
@@ -61,24 +63,36 @@ can't automate yet.
 
 ## Quick start
 
-Requires Go 1.26+ and Node.js 22+.
+**Container:**
+
+```sh
+docker run -d --name certower -p 8080:8080 -p 8443:8443 -v certower-data:/data ghcr.io/tntrock/certower:latest
+docker exec certower certower bootstrap -email you@example.com   # prints a generated password
+```
+
+Open http://localhost:8080 and sign in.
+
+**Other ways to install**, from the [releases page](https://github.com/tntrock/certower/releases):
+
+| Platform | Package |
+|---|---|
+| Windows | `.msi` installer, runs as a Windows service |
+| Debian, Ubuntu | `.deb` with a systemd service |
+| RHEL, Rocky, Fedora | `.rpm` with a systemd service |
+| Any | `.tar.gz` / `.zip` binaries; Docker Compose files in [`deploy/`](deploy) |
+
+Then follow the [administrator guide](docs/admin-guide.md) (HTTPS, backups,
+the key-encryption key) and the [user guide](docs/user-guide.md#quick-start)
+(your first certificate).
+
+**From source** (Go 1.26+, Node.js 22+):
 
 ```sh
 (cd web && npm ci && npm run build)   # the web UI is embedded in the binary
 go build -o bin/ ./cmd/...
-./bin/certower bootstrap -email admin@example.com   # prints a generated password
-./bin/certower serve                                 # web UI and API on http://localhost:8080
+./bin/certower bootstrap -email admin@example.com
+./bin/certower serve
 ```
-
-Use PostgreSQL 15+ with `-db postgres://user:pass@host/certower` or
-`CERTOWER_DB`. Then see the [API reference](docs/api.md#issuing-a-certificate)
-to set up an issuer and request your first certificate.
-
-On first start the server creates `certower.kek`, the key that encrypts
-stored private keys and credentials. **Back it up and restrict access to
-it**: without it, stored secrets cannot be decrypted. On Windows the file
-mode is not enforced, so keep it in a directory only the service account
-can read. Set its location with `-kek-file` or `CERTOWER_KEK_FILE`.
 
 ## Development
 

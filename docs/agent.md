@@ -37,8 +37,15 @@ with mutual TLS:
    The response contains a one-time token (valid 24 hours by default) and the
    complete `command` to run on the host.
 
-2. On the host, copy the `certower-agent` binary to `/usr/local/bin` and run
-   that command as root:
+   In the web UI: **Agents & targets → Add agent**.
+
+2. On the host, install the agent. The easiest way is the package from the
+   [releases page](https://github.com/tntrock/certower/releases), which also
+   installs the service: `certower-agent_<version>_amd64.deb` / `.rpm`, or
+   `certower-agent_<version>_windows_amd64.msi` (see the
+   [administrator guide](admin-guide.md#installing-agents)). Otherwise copy
+   the `certower-agent` binary to `/usr/local/bin`. Then run the enroll
+   command as root:
 
    ```sh
    certower-agent enroll -server https://certower.example.com:8443 \
@@ -46,7 +53,9 @@ with mutual TLS:
    ```
 
 3. Review `/var/lib/certower-agent/agent.json` (see below), then start the
-   service:
+   service. With the packages: `sudo systemctl start certower-agent`, or on
+   Windows `Set-Service CertowerAgent -StartupType Automatic; Start-Service CertowerAgent`.
+   With a plain binary, create the unit yourself:
 
    ```ini
    # /etc/systemd/system/certower-agent.service
