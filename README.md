@@ -1,5 +1,19 @@
 # Certower
 
+[![CI](https://github.com/tntrock/certower/actions/workflows/ci.yml/badge.svg)](https://github.com/tntrock/certower/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/tntrock/certower/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/tntrock/certower/security/code-scanning)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/tntrock/certower/badge)](https://scorecard.dev/viewer/?uri=github.com/tntrock/certower)
+[![Go Report Card](https://goreportcard.com/badge/github.com/tntrock/certower)](https://goreportcard.com/report/github.com/tntrock/certower)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+
+![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15%2B-4169E1?logo=postgresql&logoColor=white)
+![ACME](https://img.shields.io/badge/ACME-RFC%208555%20%2B%20ARI-003A70?logo=letsencrypt&logoColor=white)
+
 **Self-hosted control tower for TLS certificates.** Discover every certificate
 you run, issue and renew them over ACME from any CA, and deploy them to servers
 and appliances automatically, with multi-tenant access control.
@@ -78,6 +92,10 @@ go test ./...   # ACME tests need Pebble, see docs/testing-issuance.md
 # Also run the store tests against PostgreSQL (needs an empty database):
 CERTOWER_TEST_POSTGRES=postgres://... go test ./internal/store
 ```
+
+## Security
+
+Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## License
 
