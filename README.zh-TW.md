@@ -5,6 +5,8 @@
 
 [English](README.md)
 
+![Certower 憑證詳細頁](docs/images/certificate-detail-zh.png)
+
 > 狀態：早期開發中，尚不適合正式環境使用。
 
 ## 為什麼需要
@@ -24,6 +26,19 @@
 - **組織、專案與角色**：可依網域、CA、金鑰類型設定 Policy 護欄，支援 OIDC
   單一登入與稽核日誌。
 - **插件**：Issuer、DNS、Deployer、Notifier 皆可擴充。
+
+## 快速開始
+
+需要 Go 1.26+ 與 Node.js 22+。
+
+```sh
+(cd web && npm ci && npm run build)   # Web 介面會打包進執行檔
+go build -o bin/ ./cmd/...
+./bin/certower bootstrap -email admin@example.com   # 會印出自動產生的密碼
+./bin/certower serve                                 # 介面與 API：http://localhost:8080
+```
+
+介面支援繁體中文與英文，會依瀏覽器語言自動切換。
 
 ## 文件
 

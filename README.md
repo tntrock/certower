@@ -6,6 +6,8 @@ and appliances automatically, with multi-tenant access control.
 
 [繁體中文](README.zh-TW.md)
 
+![Certificates in Certower](docs/images/certificates-dark.png)
+
 > Status: early development. Not ready for production use.
 
 ## Why
@@ -40,12 +42,13 @@ can't automate yet.
 
 ## Quick start
 
-Requires Go 1.26+.
+Requires Go 1.26+ and Node.js 22+.
 
 ```sh
+(cd web && npm ci && npm run build)   # the web UI is embedded in the binary
 go build -o bin/ ./cmd/...
 ./bin/certower bootstrap -email admin@example.com   # prints a generated password
-./bin/certower serve                                 # SQLite at ./certower.db, port 8080
+./bin/certower serve                                 # web UI and API on http://localhost:8080
 ```
 
 Use PostgreSQL 15+ with `-db postgres://user:pass@host/certower` or
@@ -61,6 +64,12 @@ can read. Set its location with `-kek-file` or `CERTOWER_KEK_FILE`.
 ## Development
 
 ```sh
+# Web UI with hot reload against a server on :8080:
+(cd web && npm run dev)
+# Or a server with sample data at http://127.0.0.1:18090
+# (admin@example.com / "demo password 123"):
+CERTOWER_DEMO=127.0.0.1:18090 go test ./internal/e2e -run TestDemoServer -timeout 0
+
 go test ./...   # ACME tests need Pebble, see docs/testing-issuance.md
 # Also run the store tests against PostgreSQL (needs an empty database):
 CERTOWER_TEST_POSTGRES=postgres://... go test ./internal/store

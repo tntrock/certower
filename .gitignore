@@ -10,7 +10,8 @@
 
 # Frontend
 /web/node_modules/
-/web/dist/
+/web/dist/*
+!/web/dist/.gitkeep
 
 # Editors / OS
 .idea/
@@ -23,3 +24,4 @@ Thumbs.db
 
 # Key-encryption key (never commit)
 *.kek
+/web/*.tsbuildinfo

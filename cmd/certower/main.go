@@ -28,6 +28,7 @@ import (
 	"github.com/tntrock/certower/internal/store"
 	"github.com/tntrock/certower/internal/version"
 	"github.com/tntrock/certower/pkg/plugin"
+	"github.com/tntrock/certower/web"
 )
 
 func main() {
@@ -170,7 +171,7 @@ func serve(args []string) error {
 	apiSrv.SecureCookies = *secure
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           apiSrv.Handler(),
+		Handler:           withUI(apiSrv.Handler()),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -260,4 +261,13 @@ func (o dnsOptions) apply(log *slog.Logger) error {
 	}
 	log.Info("DNS resolvers configured", "servers", s.Servers, "recursiveOnly", s.RecursiveOnly)
 	return nil
+}
+
+// withUI serves the API under /api/ and /healthz, and the web UI elsewhere.
+func withUI(apiHandler http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/api/", apiHandler)
+	mux.Handle("/healthz", apiHandler)
+	mux.Handle("/", web.Handler())
+	return mux
 }
