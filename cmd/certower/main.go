@@ -77,6 +77,17 @@ func envOr(name, def string) string {
 	return def
 }
 
+// splitList splits a comma-separated list, dropping empty items.
+func splitList(s string) []string {
+	var out []string
+	for _, f := range strings.Split(s, ",") {
+		if f = strings.TrimSpace(f); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 func dbFlag(fs *flag.FlagSet) *string {
 	return fs.String("db", envOr("CERTOWER_DB", "sqlite:certower.db"),
 		"database: sqlite:<path> or postgres://... (env CERTOWER_DB)")
@@ -115,11 +126,40 @@ func serve(args []string) error {
 		"mark session cookies Secure; enable behind HTTPS (env CERTOWER_SECURE_COOKIES=true)")
 	trustedProxies := fs.String("trusted-proxies", envOr("CERTOWER_TRUSTED_PROXIES", ""),
 		"comma-separated reverse proxy addresses or CIDRs whose X-Forwarded-For is trusted for client addresses (env CERTOWER_TRUSTED_PROXIES)")
+	oidcIssuer := fs.String("oidc-issuer", envOr("CERTOWER_OIDC_ISSUER", ""),
+		"OpenID Connect issuer URL; enables single sign-on (env CERTOWER_OIDC_ISSUER). The client secret comes from env CERTOWER_OIDC_CLIENT_SECRET")
+	oidcClientID := fs.String("oidc-client-id", envOr("CERTOWER_OIDC_CLIENT_ID", ""), "OIDC client ID (env CERTOWER_OIDC_CLIENT_ID)")
+	oidcName := fs.String("oidc-name", envOr("CERTOWER_OIDC_NAME", "SSO"), "label on the sign-in button, e.g. Google or Entra ID (env CERTOWER_OIDC_NAME)")
+	oidcScopes := fs.String("oidc-scopes", envOr("CERTOWER_OIDC_SCOPES", "openid,email,profile"), "comma-separated scopes to request (env CERTOWER_OIDC_SCOPES)")
+	oidcGroups := fs.String("oidc-groups-claim", envOr("CERTOWER_OIDC_GROUPS_CLAIM", "groups"), "ID token claim with the user's groups (env CERTOWER_OIDC_GROUPS_CLAIM)")
+	oidcDomains := fs.String("oidc-allowed-domains", envOr("CERTOWER_OIDC_ALLOWED_DOMAINS", ""), "comma-separated email domains allowed to sign in; empty allows any (env CERTOWER_OIDC_ALLOWED_DOMAINS)")
+	oidcAutoCreate := fs.Bool("oidc-auto-create", os.Getenv("CERTOWER_OIDC_AUTO_CREATE") == "true",
+		"create an account on first sign-in; otherwise users must exist (env CERTOWER_OIDC_AUTO_CREATE=true)")
+	oidcSkipVerified := fs.Bool("oidc-insecure-skip-email-verified", false,
+		"accept emails the provider does not mark verified; only for providers that omit email_verified but verify addresses")
 	fs.Parse(args)
 
 	proxies, err := api.ParseTrustedProxies(*trustedProxies)
 	if err != nil {
 		return fmt.Errorf("-trusted-proxies: %w", err)
+	}
+	var oidcCfg *api.OIDCConfig
+	if *oidcIssuer != "" {
+		if *publicURL == "" || *oidcClientID == "" {
+			return errors.New("-oidc-issuer needs -public-url and -oidc-client-id")
+		}
+		oidcCfg = &api.OIDCConfig{
+			Issuer:            *oidcIssuer,
+			ClientID:          *oidcClientID,
+			ClientSecret:      os.Getenv("CERTOWER_OIDC_CLIENT_SECRET"),
+			RedirectURL:       strings.TrimSuffix(*publicURL, "/") + "/api/v1/auth/oidc/callback",
+			Name:              *oidcName,
+			Scopes:            splitList(*oidcScopes),
+			GroupsClaim:       *oidcGroups,
+			AllowedDomains:    splitList(strings.ToLower(*oidcDomains)),
+			AutoCreate:        *oidcAutoCreate,
+			SkipEmailVerified: *oidcSkipVerified,
+		}
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if err := dnsOpts.apply(log); err != nil {
@@ -179,7 +219,7 @@ func serve(args []string) error {
 		}()
 	}
 
-	apiSrv := api.New(api.Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault, AgentCA: agentCA, AgentURL: *agentURL})
+	apiSrv := api.New(api.Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault, AgentCA: agentCA, AgentURL: *agentURL, OIDC: oidcCfg})
 	apiSrv.SecureCookies = *secure
 	apiSrv.TrustedProxies = proxies
 	srv := &http.Server{

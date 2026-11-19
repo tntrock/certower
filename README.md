@@ -52,6 +52,7 @@ can't automate yet.
 
 - [Architecture](docs/architecture.md)
 - [REST API](docs/api.md)
+- [Authentication](docs/authentication.md): single sign-on (OIDC), login rate limiting, proxies
 - [Agent](docs/agent.md): install, nginx deployment, security model
 - [Discovery and notifications](docs/discovery-and-notifications.md)
 - [Data model](docs/data-model.md)

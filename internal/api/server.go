@@ -47,6 +47,7 @@ type Server struct {
 	TrustedProxies []netip.Prefix
 
 	logins *loginLimiter
+	oidc   *oidcClient
 }
 
 // Deps are the services the API uses.
@@ -60,12 +61,18 @@ type Deps struct {
 	// API address agents connect to, e.g. https://certower.example.com:8443.
 	AgentCA  *agentca.CA
 	AgentURL string
+	// OIDC enables single sign-on; nil disables it.
+	OIDC *OIDCConfig
 }
 
 // New returns a Server.
 func New(d Deps) *Server {
-	return &Server{store: d.Store, log: d.Log, engine: d.Engine, configs: d.Configs, vault: d.Vault, agentCA: d.AgentCA, agentURL: d.AgentURL,
+	s := &Server{store: d.Store, log: d.Log, engine: d.Engine, configs: d.Configs, vault: d.Vault, agentCA: d.AgentCA, agentURL: d.AgentURL,
 		SessionTTL: 12 * time.Hour, logins: newLoginLimiter()}
+	if d.OIDC != nil {
+		s.oidc = &oidcClient{cfg: d.OIDC}
+	}
+	return s
 }
 
 // Handler returns the HTTP handler for the API.
@@ -82,6 +89,9 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, capresets.All())
 	})
 	pub("POST /api/v1/auth/login", s.login)
+	pub("GET /api/v1/auth/providers", s.providers)
+	pub("GET /api/v1/auth/oidc/login", s.oidcLogin)
+	pub("GET /api/v1/auth/oidc/callback", s.oidcCallback)
 
 	priv("POST /api/v1/auth/logout", s.logout)
 	priv("GET /api/v1/me", s.me)
@@ -208,10 +218,11 @@ func (s *Server) resolve(ctx context.Context, token string) (*principal, error) 
 	var err error
 	switch {
 	case strings.HasPrefix(token, auth.SessionPrefix):
-		if p.user, err = s.store.SessionUser(ctx, hash); err != nil {
+		var groups []string
+		if p.user, groups, err = s.store.Session(ctx, hash); err != nil {
 			return nil, err
 		}
-		p.bindings, err = s.store.BindingsForUser(ctx, p.user.ID, nil)
+		p.bindings, err = s.store.BindingsForUser(ctx, p.user.ID, groups)
 	case strings.HasPrefix(token, auth.APITokenPrefix):
 		if p.sa, err = s.store.TokenServiceAccount(ctx, hash); err != nil {
 			return nil, err

@@ -60,6 +60,7 @@ go build -o bin/ ./cmd/...
 
 - [架構](docs/architecture.md)
 - [REST API](docs/api.md)
+- [登入與驗證](docs/authentication.md)：OIDC 單一登入、登入失敗次數限制、反向代理
 - [Agent](docs/agent.md)：安裝、部署到 nginx、安全模型
 - [憑證探索與通知](docs/discovery-and-notifications.md)
 - [資料模型](docs/data-model.md)

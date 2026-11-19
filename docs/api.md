@@ -38,7 +38,9 @@ certower bootstrap -email admin@example.com
 
 | Method | Path | Permission |
 |---|---|---|
-| POST | `/auth/login` | none |
+| POST | `/auth/login` | none; `429` after repeated failures ([details](authentication.md#login-rate-limiting)) |
+| GET | `/auth/providers` | none; which sign-in methods exist |
+| GET | `/auth/oidc/login`, `/auth/oidc/callback` | none; browser single sign-on flow ([details](authentication.md#single-sign-on-openid-connect)) |
 | POST | `/auth/logout` | authenticated |
 | GET | `/me` | authenticated |
 | GET, POST | `/users` | instance admin |

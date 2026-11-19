@@ -28,6 +28,7 @@ import (
 	"github.com/tntrock/certower/internal/policy"
 	"github.com/tntrock/certower/internal/secrets"
 	"github.com/tntrock/certower/internal/store"
+	"github.com/tntrock/certower/internal/testutil/oidcmock"
 	"github.com/tntrock/certower/pkg/plugin"
 	"github.com/tntrock/certower/web"
 )
@@ -74,7 +75,16 @@ func TestDemoServer(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	eng := &engine.Engine{Store: st, Vault: vault, Configs: configs, Log: log, Poll: time.Second}
 	agentCA, _ := agentca.Load(ctx, st, kek)
-	apiH := api.New(api.Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault, AgentCA: agentCA, AgentURL: "https://certower.example.com:8443"}).Handler()
+	// A mock identity provider: "Sign in with Demo SSO" logs in dev@example.com
+	// in the web-team group.
+	idp, err := oidcmock.New("certower-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer idp.Close()
+	idp.SignInAs(map[string]any{"sub": "dev-1", "email": "dev@example.com", "email_verified": true, "name": "Dev", "groups": []string{"web-team"}})
+	oidcCfg := &api.OIDCConfig{Issuer: idp.URL, ClientID: "certower-demo", RedirectURL: "http://" + addr + "/api/v1/auth/oidc/callback", Name: "Demo SSO", AutoCreate: true}
+	apiH := api.New(api.Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault, AgentCA: agentCA, AgentURL: "https://certower.example.com:8443", OIDC: oidcCfg}).Handler()
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiH)
 	mux.Handle("/", web.Handler())

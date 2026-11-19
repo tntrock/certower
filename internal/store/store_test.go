@@ -270,3 +270,41 @@ func TestConcurrentTransactions(t *testing.T) {
 		t.Fatalf("concurrent transaction failed: %v", err)
 	}
 }
+
+func TestOIDCIdentities(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	const iss = "https://idp.example.com"
+	if _, err := s.GetUserByOIDC(ctx, iss, "sub-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown subject: %v", err)
+	}
+	local, _ := s.CreateUser(ctx, "local@example.com", "", "hash", false)
+	if err := s.LinkOIDC(ctx, local.ID, iss, "sub-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.GetUserByOIDC(ctx, iss, "sub-1"); err != nil || got.ID != local.ID {
+		t.Fatalf("GetUserByOIDC = %v, %v", got, err)
+	}
+	if i, sub, err := s.OIDCSubject(ctx, local.ID); err != nil || i != iss || sub != "sub-1" {
+		t.Fatalf("OIDCSubject = %q %q %v", i, sub, err)
+	}
+	sso, err := s.CreateOIDCUser(ctx, "sso@example.com", "SSO", iss, "sub-2")
+	if err != nil || sso.PasswordHash != "" {
+		t.Fatalf("CreateOIDCUser = %+v, %v", sso, err)
+	}
+	if _, err := s.CreateOIDCUser(ctx, "other@example.com", "", iss, "sub-2"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate subject: %v", err)
+	}
+
+	if err := s.CreateSession(ctx, sso.ID, []byte("h"), time.Now().Add(time.Hour), "ops", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	u, groups, err := s.Session(ctx, []byte("h"))
+	if err != nil || u.ID != sso.ID || len(groups) != 2 || groups[0] != "ops" {
+		t.Fatalf("Session = %v %v %v", u, groups, err)
+	}
+	s.CreateSession(ctx, local.ID, []byte("p"), time.Now().Add(time.Hour))
+	if _, groups, err := s.Session(ctx, []byte("p")); err != nil || len(groups) != 0 {
+		t.Fatalf("password session groups = %v %v", groups, err)
+	}
+}

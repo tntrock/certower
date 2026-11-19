@@ -58,6 +58,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
+	s.setSessionCookie(w, token, expires)
+	writeJSON(w, http.StatusOK, loginResponse{Token: token, ExpiresAt: expires, User: u})
+}
+
+func (s *Server) setSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookie,
 		Value:    token,
@@ -67,7 +72,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		Secure:   s.SecureCookies,
 		SameSite: http.SameSiteStrictMode,
 	})
-	writeJSON(w, http.StatusOK, loginResponse{Token: token, ExpiresAt: expires, User: u})
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request, p *principal) {

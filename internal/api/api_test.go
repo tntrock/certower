@@ -26,7 +26,10 @@ type env struct {
 	eng *engine.Engine
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T) *env { return newEnvWith(t, nil) }
+
+// newEnvWith lets a test adjust the server dependencies.
+func newEnvWith(t *testing.T, mod func(*Deps)) *env {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(ctx, "sqlite:"+filepath.Join(t.TempDir(), "api.db"))
@@ -41,7 +44,11 @@ func newEnv(t *testing.T) *env {
 	vault := &secrets.Vault{Store: st, KEK: kek}
 	configs := &pluginconfig.Service{Store: st, Vault: vault, Registry: testRegistry(t)}
 	eng := &engine.Engine{Store: st, Vault: vault, Configs: configs, Log: log}
-	srv := httptest.NewServer(New(Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault}).Handler())
+	d := Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault}
+	if mod != nil {
+		mod(&d)
+	}
+	srv := httptest.NewServer(New(d).Handler())
 	t.Cleanup(func() { srv.Close(); st.Close() })
 	return &env{t: t, srv: srv, st: st, eng: eng}
 }

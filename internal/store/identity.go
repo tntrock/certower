@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -73,17 +74,80 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 
 // ---------------------------------------------------------------- sessions
 
-func (s *Store) CreateSession(ctx context.Context, userID string, tokenHash []byte, expires time.Time) error {
-	_, err := s.exec(ctx, `INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)`,
-		newID(), userID, tokenHash, expires.UTC(), now())
+// CreateSession stores a login. groups are the user's OIDC groups, if the
+// login came through single sign-on.
+func (s *Store) CreateSession(ctx context.Context, userID string, tokenHash []byte, expires time.Time, groups ...string) error {
+	if groups == nil {
+		groups = []string{}
+	}
+	g, err := json.Marshal(groups)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(ctx, `INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at, oidc_groups) VALUES (?, ?, ?, ?, ?, ?)`,
+		newID(), userID, tokenHash, expires.UTC(), now(), string(g))
 	return err
 }
 
 // SessionUser returns the active user owning an unexpired session.
 func (s *Store) SessionUser(ctx context.Context, tokenHash []byte) (*User, error) {
-	return scanUser(s.queryRow(ctx, `SELECT u.id, u.email, u.display_name, u.password_hash, u.is_superuser, u.disabled, u.created_at
+	u, _, err := s.Session(ctx, tokenHash)
+	return u, err
+}
+
+// Session returns the active user owning an unexpired session and the OIDC
+// groups recorded with it.
+func (s *Store) Session(ctx context.Context, tokenHash []byte) (*User, []string, error) {
+	var groups string
+	var u User
+	var hash *string
+	err := s.queryRow(ctx, `SELECT u.id, u.email, u.display_name, u.password_hash, u.is_superuser, u.disabled, u.created_at, s.oidc_groups
 		FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash = ? AND s.expires_at > ? AND NOT u.disabled`, tokenHash, now()))
+		WHERE s.token_hash = ? AND s.expires_at > ? AND NOT u.disabled`, tokenHash, now()).
+		Scan(&u.ID, &u.Email, &u.DisplayName, &hash, &u.IsSuperuser, &u.Disabled, &u.CreatedAt, &groups)
+	if err != nil {
+		return nil, nil, mapErr(err)
+	}
+	u.PasswordHash = str(hash)
+	var gs []string
+	if err := json.Unmarshal([]byte(groups), &gs); err != nil {
+		return nil, nil, fmt.Errorf("session groups: %w", err)
+	}
+	return &u, gs, nil
+}
+
+// ---------------------------------------------------------------- OIDC identities
+
+// GetUserByOIDC finds the user linked to an identity provider subject.
+func (s *Store) GetUserByOIDC(ctx context.Context, issuer, subject string) (*User, error) {
+	return scanUser(s.queryRow(ctx, `SELECT `+userCols+` FROM users WHERE oidc_issuer = ? AND oidc_subject = ?`, issuer, subject))
+}
+
+// OIDCSubject returns the identity a user is linked to, or "" if none.
+func (s *Store) OIDCSubject(ctx context.Context, userID string) (issuer, subject string, err error) {
+	var i, sub *string
+	if err := s.queryRow(ctx, `SELECT oidc_issuer, oidc_subject FROM users WHERE id = ?`, userID).Scan(&i, &sub); err != nil {
+		return "", "", mapErr(err)
+	}
+	return str(i), str(sub), nil
+}
+
+// LinkOIDC links a user to an identity provider subject.
+func (s *Store) LinkOIDC(ctx context.Context, userID, issuer, subject string) error {
+	return s.execOne(ctx, `UPDATE users SET oidc_issuer = ?, oidc_subject = ? WHERE id = ?`, issuer, subject, userID)
+}
+
+// CreateOIDCUser creates a user who signs in only through the identity
+// provider.
+func (s *Store) CreateOIDCUser(ctx context.Context, email, displayName, issuer, subject string) (*User, error) {
+	u := &User{ID: newID(), Email: email, DisplayName: displayName, CreatedAt: now()}
+	_, err := s.exec(ctx, `INSERT INTO users (id, email, display_name, oidc_issuer, oidc_subject, is_superuser, disabled, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, u.Email, u.DisplayName, issuer, subject, false, false, u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
 }
 
 func (s *Store) DeleteSession(ctx context.Context, tokenHash []byte) error {
