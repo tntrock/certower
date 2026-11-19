@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
 import { api, type Project } from "../api";
 import { LanguagePicker, useI18n } from "../i18n";
 import { useSession } from "../session";
+import { ChangePasswordModal } from "../pages/Users";
 import { useLoad } from "./ui";
 
 export function Layout() {
@@ -9,6 +11,7 @@ export function Layout() {
   const { me, orgs, logout } = useSession();
   const { t } = useI18n();
   const navigate = useNavigate();
+  const [changingPassword, setChangingPassword] = useState(false);
   const projects = useLoad(() => (org ? api.get<Project[]>(`/orgs/${org}/projects`) : Promise.resolve([] as Project[])), [org]);
 
   const p = (path: string) => `/o/${org}/p/${project}${path}`;
@@ -79,10 +82,22 @@ export function Layout() {
           </nav>
         )}
 
+        {me.user?.isSuperuser && (
+          <nav className="nav nav-section">
+            <span className="nav-label">{t("Instance")}</span>
+            <NavLink to="/admin/users">{t("Users")}</NavLink>
+          </nav>
+        )}
+
         <div className="sidebar-footer">
           <div title={me.user?.email}>{me.user?.email}</div>
           <div className="actions">
             <LanguagePicker className="small" />
+            {me.user?.hasPassword && (
+              <button className="small" onClick={() => setChangingPassword(true)}>
+                {t("Change password")}
+              </button>
+            )}
             <button className="small" onClick={() => logout().then(() => navigate("/"))}>
               {t("Sign out")}
             </button>
@@ -92,6 +107,7 @@ export function Layout() {
       <main className="main">
         <Outlet />
       </main>
+      {changingPassword && <ChangePasswordModal onClose={() => setChangingPassword(false)} />}
     </div>
   );
 }

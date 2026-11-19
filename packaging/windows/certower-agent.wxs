@@ -9,7 +9,8 @@
   The state folder holds private keys, so only SYSTEM and Administrators
   can read it. Uninstalling keeps it.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="Certower Agent"
            Manufacturer="Certower"
            Version="$(var.Version)"
@@ -26,7 +27,6 @@
       <Directory Id="INSTALLFOLDER" Name="Certower Agent">
         <Component Id="AgentExe" Bitness="always64">
           <File Id="AgentExe" Source="$(var.BinDir)\certower-agent.exe" KeyPath="yes" />
-          <File Id="License" Source="LICENSE" Name="LICENSE.txt" />
           <ServiceInstall Name="CertowerAgent"
                           DisplayName="Certower Agent"
                           Description="Installs certificates from Certower into local services"
@@ -35,14 +35,13 @@
                           ErrorControl="normal"
                           Account="LocalSystem"
                           Arguments="run -log-file &quot;[CommonAppDataFolder]Certower\agent\agent.log&quot;">
-            <ServiceConfigFailureActions OnInstall="yes" ResetPeriod="86400">
-              <Failure Action="restartService" Delay="10000" />
-              <Failure Action="restartService" Delay="30000" />
-              <Failure Action="restartService" Delay="60000" />
-            </ServiceConfigFailureActions>
+            <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart" ThirdFailureActionType="restart" RestartServiceDelayInSeconds="10" ResetPeriodInDays="1" />
           </ServiceInstall>
           <ServiceControl Id="AgentService" Name="CertowerAgent" Stop="both" Remove="uninstall" Wait="yes" />
           <Environment Id="Path" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes" Permanent="no" />
+        </Component>
+        <Component Id="LicenseFile">
+          <File Id="License" Source="LICENSE" Name="LICENSE.txt" KeyPath="yes" />
         </Component>
       </Directory>
     </StandardDirectory>
@@ -61,6 +60,7 @@
 
     <Feature Id="Main" Title="Certower Agent">
       <ComponentRef Id="AgentExe" />
+      <ComponentRef Id="LicenseFile" />
       <ComponentRef Id="AgentFolder" />
     </Feature>
   </Package>

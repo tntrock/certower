@@ -6,6 +6,16 @@ import { useI18n } from "../i18n";
 
 const keyTypes = ["ecdsa-p256", "ecdsa-p384", "rsa-2048", "rsa-3072", "rsa-4096"];
 
+// Names for the built-in roles; custom roles show their own name.
+// i18n-table
+const roleLabels: Record<string, string> = {
+  org_admin: "Organization admin",
+  project_admin: "Project admin",
+  operator: "Operator",
+  viewer: "Viewer",
+  auditor: "Auditor",
+};
+
 // ------------------------------------------------------------------ policy
 
 export function PolicyPage() {
@@ -96,6 +106,7 @@ export function Members({ scope }: { scope: "org" | "project" }) {
   const roles = useLoad(() => api.get<RoleInfo[]>(`/orgs/${org}/roles`), [org]);
   const [adding, setAdding] = useState(false);
   const del = useAction();
+  const roleName = (r: string) => (roleLabels[r] ? `${t(roleLabels[r])} (${r})` : r);
 
   const subject = (b: RoleBinding) =>
     b.oidcGroup ? (
@@ -107,7 +118,7 @@ export function Members({ scope }: { scope: "org" | "project" }) {
         <Badge>{t("Service account")}</Badge> <span className="mono small">{b.serviceAccountId.slice(0, 8)}</span>
       </>
     ) : (
-      <span className="mono small">{b.userId?.slice(0, 8)}…</span>
+      b.userEmail ?? <span className="mono small">{b.userId?.slice(0, 8)}…</span>
     );
 
   return (
@@ -136,12 +147,12 @@ export function Members({ scope }: { scope: "org" | "project" }) {
                 <tr key={b.id}>
                   <td>{subject(b)}</td>
                   <td>
-                    <Badge kind="info">{b.role}</Badge>
+                    <Badge kind="info">{roleName(b.role)}</Badge>
                   </td>
                   <td className="muted">{date(b.createdAt)}</td>
                   <td className="right">
                     <button className="small danger" onClick={() => del.run(() => api.del(`${base}/bindings/${b.id}`)).then(bindings.reload)}>
-                      {t("Revoke")}
+                      {t("Remove")}
                     </button>
                   </td>
                 </tr>
@@ -161,7 +172,7 @@ export function Members({ scope }: { scope: "org" | "project" }) {
               {roles.data.map((r) => (
                 <tr key={r.name}>
                   <td className="nowrap">
-                    <b>{r.name}</b> {!r.builtin && <Badge>{t("custom")}</Badge>}
+                    <b>{roleName(r.name)}</b> {!r.builtin && <Badge>{t("custom")}</Badge>}
                   </td>
                   <td>
                     {r.permissions.map((p) => (
@@ -184,6 +195,7 @@ export function Members({ scope }: { scope: "org" | "project" }) {
 
 function GrantModal({ base, scope, roles, onClose, onDone }: { base: string; scope: string; roles: RoleInfo[]; onClose: () => void; onDone: () => void }) {
   const { t } = useI18n();
+  const roleName = (r: string) => (roleLabels[r] ? `${t(roleLabels[r])} (${r})` : r);
   const [kind, setKind] = useState<"user" | "oidcGroup" | "serviceAccount">("user");
   const [value, setValue] = useState("");
   const [role, setRole] = useState(scope === "org" ? "viewer" : "operator");
@@ -218,7 +230,9 @@ function GrantModal({ base, scope, roles, onClose, onDone }: { base: string; sco
           <label htmlFor="role">{t("Role")}</label>
           <select id="role" value={role} onChange={(e) => setRole(e.target.value)}>
             {roles.map((r) => (
-              <option key={r.name}>{r.name}</option>
+              <option key={r.name} value={r.name}>
+                {roleName(r.name)}
+              </option>
             ))}
           </select>
           <span className="hint">{t("You can only grant roles whose permissions you hold yourself.")}</span>

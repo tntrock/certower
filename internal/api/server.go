@@ -98,6 +98,8 @@ func (s *Server) Handler() http.Handler {
 
 	priv("GET /api/v1/users", s.listUsers)
 	priv("POST /api/v1/users", s.createUser)
+	priv("PATCH /api/v1/users/{user}", s.updateUser)
+	priv("POST /api/v1/me/password", s.changePassword)
 
 	priv("GET /api/v1/orgs", s.listOrgs)
 	priv("POST /api/v1/orgs", s.createOrg)

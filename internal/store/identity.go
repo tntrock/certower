@@ -9,13 +9,15 @@ import (
 
 // User is a human account, local or from OIDC.
 type User struct {
-	ID           string    `json:"id"`
-	Email        string    `json:"email"`
-	DisplayName  string    `json:"displayName"`
-	PasswordHash string    `json:"-"`
-	IsSuperuser  bool      `json:"isSuperuser"`
-	Disabled     bool      `json:"disabled"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID           string `json:"id"`
+	Email        string `json:"email"`
+	DisplayName  string `json:"displayName"`
+	PasswordHash string `json:"-"`
+	// HasPassword is false for accounts that sign in only through SSO.
+	HasPassword bool      `json:"hasPassword"`
+	IsSuperuser bool      `json:"isSuperuser"`
+	Disabled    bool      `json:"disabled"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 const userCols = `id, email, display_name, password_hash, is_superuser, disabled, created_at`
@@ -27,11 +29,12 @@ func scanUser(sc interface{ Scan(...any) error }) (*User, error) {
 		return nil, mapErr(err)
 	}
 	u.PasswordHash = str(hash)
+	u.HasPassword = u.PasswordHash != ""
 	return &u, nil
 }
 
 func (s *Store) CreateUser(ctx context.Context, email, displayName, passwordHash string, superuser bool) (*User, error) {
-	u := &User{ID: newID(), Email: email, DisplayName: displayName, PasswordHash: passwordHash, IsSuperuser: superuser, CreatedAt: now()}
+	u := &User{ID: newID(), Email: email, DisplayName: displayName, PasswordHash: passwordHash, IsSuperuser: superuser, CreatedAt: now(), HasPassword: passwordHash != ""}
 	_, err := s.exec(ctx, `INSERT INTO users (id, email, display_name, password_hash, is_superuser, disabled, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		u.ID, u.Email, u.DisplayName, nullable(passwordHash), u.IsSuperuser, false, u.CreatedAt)
@@ -64,6 +67,26 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 		out = append(out, *u)
 	}
 	return out, rows.Err()
+}
+
+// SetUserPassword replaces a user's password hash.
+func (s *Store) SetUserPassword(ctx context.Context, userID, hash string) error {
+	return s.execOne(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, nullable(hash), userID)
+}
+
+// SetUserFlags changes whether a user is disabled or an instance administrator.
+func (s *Store) SetUserFlags(ctx context.Context, userID string, disabled, superuser bool) error {
+	return s.execOne(ctx, `UPDATE users SET disabled = ?, is_superuser = ? WHERE id = ?`, disabled, superuser, userID)
+}
+
+// DeleteUserSessions signs a user out everywhere, except for the session
+// whose token hash is keep (nil keeps none).
+func (s *Store) DeleteUserSessions(ctx context.Context, userID string, keep []byte) error {
+	if keep == nil {
+		keep = []byte{}
+	}
+	_, err := s.exec(ctx, `DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?`, userID, keep)
+	return err
 }
 
 func (s *Store) CountUsers(ctx context.Context) (int, error) {
@@ -109,6 +132,7 @@ func (s *Store) Session(ctx context.Context, tokenHash []byte) (*User, []string,
 		return nil, nil, mapErr(err)
 	}
 	u.PasswordHash = str(hash)
+	u.HasPassword = u.PasswordHash != ""
 	var gs []string
 	if err := json.Unmarshal([]byte(groups), &gs); err != nil {
 		return nil, nil, fmt.Errorf("session groups: %w", err)
@@ -258,14 +282,16 @@ func (s *Store) TokenServiceAccount(ctx context.Context, tokenHash []byte) (*Ser
 // RoleBinding grants Role to exactly one of UserID, ServiceAccountID or
 // OIDCGroup, in an organization or (with ProjectID) one of its projects.
 type RoleBinding struct {
-	ID               string    `json:"id"`
-	OrgID            string    `json:"orgId"`
-	ProjectID        string    `json:"projectId,omitempty"`
-	Role             string    `json:"role"`
-	UserID           string    `json:"userId,omitempty"`
-	ServiceAccountID string    `json:"serviceAccountId,omitempty"`
-	OIDCGroup        string    `json:"oidcGroup,omitempty"`
-	CreatedAt        time.Time `json:"createdAt"`
+	ID               string `json:"id"`
+	OrgID            string `json:"orgId"`
+	ProjectID        string `json:"projectId,omitempty"`
+	Role             string `json:"role"`
+	UserID           string `json:"userId,omitempty"`
+	ServiceAccountID string `json:"serviceAccountId,omitempty"`
+	OIDCGroup        string `json:"oidcGroup,omitempty"`
+	// UserEmail is filled in for display; it is not stored.
+	UserEmail string    `json:"userEmail,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 const bindingCols = `id, org_id, project_id, role, user_id, service_account_id, oidc_group, created_at`

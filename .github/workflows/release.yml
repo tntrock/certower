@@ -92,8 +92,8 @@ jobs:
           for i in $(seq 30); do certower healthcheck && break; sleep 1; done
           certower healthcheck
           sudo -u certower certower bootstrap -config /etc/certower/certower.env -email admin@example.com
-          test "$(stat -c '%U %a' /var/lib/certower/certower.kek)" = "certower 600"
-          test "$(stat -c '%G %a' /etc/certower/certower.env)" = "certower 640"
+          test "$(sudo stat -c '%U %a' /var/lib/certower/certower.kek)" = "certower 600"
+          test "$(sudo stat -c '%G %a' /etc/certower/certower.env)" = "certower 640"
           curl -fsS -X POST localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' \
             -d '{"email":"admin@example.com","password":"wrong"}' -o /dev/null -w '%{http_code}\n' | grep -q 401
       - name: Install and check the agent package
@@ -109,7 +109,7 @@ jobs:
         run: |
           sudo apt-get remove -y certower certower-agent
           if systemctl is-active certower; then exit 1; fi
-          test -f /var/lib/certower/certower.kek
+          sudo test -f /var/lib/certower/certower.kek
 
   windows-installers:
     needs: [web, binaries]
@@ -142,8 +142,9 @@ jobs:
         run: |
           # WiX v5 (MS-RL). Later versions add a maintenance fee for commercial users.
           dotnet tool install --global wix --version 5.0.2
-          wix build -arch x64 -d Version=$env:VERSION -d BinDir=bin packaging/windows/certower.wxs -o "certower_$($env:VERSION)_windows_amd64.msi"
-          wix build -arch x64 -d Version=$env:VERSION -d BinDir=bin packaging/windows/certower-agent.wxs -o "certower-agent_$($env:VERSION)_windows_amd64.msi"
+          wix extension add -g WixToolset.Util.wixext/5.0.2
+          wix build -arch x64 -ext WixToolset.Util.wixext -d Version=$env:VERSION -d BinDir=bin packaging/windows/certower.wxs -o "certower_$($env:VERSION)_windows_amd64.msi"
+          wix build -arch x64 -ext WixToolset.Util.wixext -d Version=$env:VERSION -d BinDir=bin packaging/windows/certower-agent.wxs -o "certower-agent_$($env:VERSION)_windows_amd64.msi"
           Get-FileHash *.msi -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content msi-checksums.txt
           Get-Content msi-checksums.txt
       - name: Test the server installer

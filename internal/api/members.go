@@ -161,6 +161,19 @@ func (s *Server) listBindings(w http.ResponseWriter, r *http.Request, p *princip
 		s.internal(w, err)
 		return
 	}
+	// Show people by email rather than ID.
+	emails := map[string]string{}
+	for i, b := range bs {
+		if b.UserID == "" {
+			continue
+		}
+		if _, ok := emails[b.UserID]; !ok {
+			if u, err := s.store.GetUser(r.Context(), b.UserID); err == nil {
+				emails[b.UserID] = u.Email
+			}
+		}
+		bs[i].UserEmail = emails[b.UserID]
+	}
 	writeJSON(w, http.StatusOK, nonNil(bs))
 }
 

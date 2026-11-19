@@ -7,7 +7,8 @@
   The data folder is readable only by SYSTEM and Administrators, since it
   holds the key-encryption key. Uninstalling keeps the data folder.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="Certower Server"
            Manufacturer="Certower"
            Version="$(var.Version)"
@@ -24,7 +25,6 @@
       <Directory Id="INSTALLFOLDER" Name="Certower">
         <Component Id="ServerExe" Bitness="always64">
           <File Id="CertowerExe" Source="$(var.BinDir)\certower.exe" KeyPath="yes" />
-          <File Id="License" Source="LICENSE" Name="LICENSE.txt" />
           <ServiceInstall Name="Certower"
                           DisplayName="Certower"
                           Description="Certower certificate lifecycle manager"
@@ -33,14 +33,13 @@
                           ErrorControl="normal"
                           Account="LocalSystem"
                           Arguments="serve -config &quot;[CommonAppDataFolder]Certower\certower.env&quot;">
-            <ServiceConfigFailureActions OnInstall="yes" ResetPeriod="86400">
-              <Failure Action="restartService" Delay="10000" />
-              <Failure Action="restartService" Delay="30000" />
-              <Failure Action="restartService" Delay="60000" />
-            </ServiceConfigFailureActions>
+            <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart" ThirdFailureActionType="restart" RestartServiceDelayInSeconds="10" ResetPeriodInDays="1" />
           </ServiceInstall>
           <ServiceControl Id="CertowerService" Name="Certower" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
           <Environment Id="Path" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes" Permanent="no" />
+        </Component>
+        <Component Id="LicenseFile">
+          <File Id="License" Source="LICENSE" Name="LICENSE.txt" KeyPath="yes" />
         </Component>
       </Directory>
     </StandardDirectory>
@@ -62,6 +61,7 @@
 
     <Feature Id="Main" Title="Certower Server">
       <ComponentRef Id="ServerExe" />
+      <ComponentRef Id="LicenseFile" />
       <ComponentRef Id="DataFolder" />
       <ComponentRef Id="ConfigFile" />
     </Feature>

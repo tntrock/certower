@@ -10,6 +10,7 @@ import { Configs } from "./pages/Configs";
 import { Discovery } from "./pages/Discovery";
 import { Login } from "./pages/Login";
 import { Home, OrgOverview } from "./pages/Org";
+import { Users } from "./pages/Users";
 import { SessionGate } from "./session";
 import "./styles.css";
 
@@ -32,6 +33,7 @@ function App() {
           <Route path="o/:org/p/:project/policy" element={<PolicyPage />} />
           <Route path="o/:org/p/:project/members" element={<Members scope="project" />} />
           <Route path="o/:org/p/:project/jobs" element={<Jobs />} />
+          <Route path="admin/users" element={<Users />} />
           <Route path="*" element={<Home />} />
         </Route>
       </Routes>

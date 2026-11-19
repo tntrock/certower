@@ -87,6 +87,10 @@ export function Loading() {
 const codeMessages: Record<string, string> = {
   invalid_credentials: "Invalid email or password.",
   too_many_attempts: "Too many failed sign-in attempts. Try again in a few minutes.",
+  wrong_password: "The current password is wrong.",
+  weak_password: "The password must be at least 12 characters.",
+  self_lockout: "You cannot disable your own account or remove your own administrator rights.",
+  no_password: "This account signs in through single sign-on and has no password.",
 };
 
 export function ErrorBox({ error }: { error: unknown }) {
