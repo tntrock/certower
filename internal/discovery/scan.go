@@ -123,11 +123,13 @@ func (s *Scanner) trust(chain []*x509.Certificate, sni string, now time.Time) *F
 	}
 	var host x509.HostnameError
 	if errors.As(err, &host) {
-		return &Finding{CodeHostnameMismatch, Critical, fmt.Sprintf("certificate is not valid for %q", sni)}
+		f := finding(CodeHostnameMismatch, Critical, map[string]string{"name": sni}, "certificate is not valid for %q", sni)
+		return &f
 	}
 	var inv x509.CertificateInvalidError
 	if errors.As(err, &inv) && inv.Reason == x509.Expired {
 		return nil // already reported as expired
 	}
-	return &Finding{CodeUntrusted, Warning, "chain does not lead to a trusted root: " + err.Error()}
+	f := finding(CodeUntrusted, Warning, map[string]string{"error": err.Error()}, "chain does not lead to a trusted root: %s", err)
+	return &f
 }

@@ -18,7 +18,7 @@
 you run, issue and renew them over ACME from any CA, and deploy them to servers
 and appliances automatically, with multi-tenant access control.
 
-[繁體中文](README.zh-TW.md)
+English | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
 
 ![Certificates in Certower](docs/images/certificates-dark.png)
 
@@ -46,7 +46,7 @@ can't automate yet.
 - **Notifications** by email and webhook (Slack, Mattermost, Google Chat,
   Discord, or signed JSON): expiry warnings, failures, discovery alerts.
 - **Plugins** for issuers, DNS providers, deployers, and notifiers.
-- **Web UI** in English and Traditional Chinese.
+- **Web UI** in English, Traditional Chinese (繁體中文) and Simplified Chinese (简体中文), chosen from the browser language.
 
 ## Documentation
 

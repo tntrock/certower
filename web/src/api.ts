@@ -256,6 +256,8 @@ export interface Finding {
   code: string;
   severity: "info" | "warning" | "critical";
   message: string;
+  // The values in message, for wording it in another language.
+  params?: Record<string, string>;
 }
 
 export interface DiscoveredCert {

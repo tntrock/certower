@@ -17,7 +17,7 @@
 **自架的 TLS 憑證中控塔台。** 找出你所有正在使用的憑證，透過 ACME 向任何 CA
 簽發與續期，並自動部署到伺服器與網路設備，同時提供多租戶權限控管。
 
-[English](README.md)
+[English](README.md) | 繁體中文 | [简体中文](README.zh-CN.md)
 
 ![Certower 憑證詳細頁](docs/images/certificate-detail-zh.png)
 
@@ -41,7 +41,7 @@
   單一登入與稽核日誌。
 - **通知**：Email 與 Webhook（Slack、Mattermost、Google Chat、Discord 或帶簽章的 JSON）：到期提醒、簽發／部署失敗、探索告警。
 - **插件**：Issuer、DNS、Deployer、Notifier 皆可擴充。
-- **Web 管理介面**：繁體中文與英文。
+- **Web 管理介面**：支援繁體中文、簡體中文與英文。
 
 ## 快速開始
 
@@ -54,9 +54,11 @@ go build -o bin/ ./cmd/...
 ./bin/certower serve                                 # 介面與 API：http://localhost:8080
 ```
 
-介面支援繁體中文與英文，會依瀏覽器語言自動切換。
+介面會依瀏覽器語言自動選擇，也可以在登入頁或側邊欄底部隨時切換。
 
 ## 文件
+
+以下文件目前為英文。
 
 - [架構](docs/architecture.md)
 - [REST API](docs/api.md)

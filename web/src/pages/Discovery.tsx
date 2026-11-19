@@ -6,6 +6,35 @@ import { useI18n } from "../i18n";
 
 const rank = { critical: 2, warning: 1, info: 0 } as const;
 
+// Short names for finding codes; the server's message adds the details.
+// i18n-table
+const findingLabels: Record<string, string> = {
+  expired: "Expired",
+  expiring_soon: "Expiring soon",
+  not_yet_valid: "Not yet valid",
+  distrusted_root: "Distrusted root CA",
+  hostname_mismatch: "Name mismatch",
+  untrusted: "Untrusted chain",
+  sha1_signature: "SHA-1 signature",
+  weak_key: "Weak key",
+  validity_too_long: "Validity too long",
+};
+
+// Full sentences, filled from the finding's params. Scans recorded before
+// params existed show the server's English message instead.
+// i18n-table
+const findingMessages: Record<string, string> = {
+  expired: "Expired on {date}.",
+  not_yet_valid: "Not valid until {date}.",
+  expiring_soon: "Expires in {days} days.",
+  distrusted_root: "Chains to {root} ({owner}), which {by} does not trust for certificates issued after {date}.",
+  hostname_mismatch: "The certificate is not valid for {name}.",
+  untrusted: "The chain does not lead to a trusted root: {error}",
+  sha1_signature: "{name} is signed with SHA-1.",
+  weak_key: "The {alg} key is {bits} bits; the minimum is {min}.",
+  validity_too_long: "A lifetime of {days} days exceeds the {max}-day CA/B Forum limit.",
+};
+
 function worst(fs?: Finding[]) {
   return (fs ?? []).reduce<Finding | undefined>((w, f) => (!w || rank[f.severity] > rank[w.severity] ? f : w), undefined);
 }
@@ -130,7 +159,8 @@ export function Discovery() {
                         <td>
                           {w ? (
                             <Badge kind={w.severity === "critical" ? "bad" : w.severity === "warning" ? "warn" : "info"}>
-                              {(c?.findings.length ?? 0) > 1 ? `${w.code} +${c!.findings.length - 1}` : w.code}
+                              {findingLabels[w.code] ? t(findingLabels[w.code]) : w.code}
+                              {(c?.findings.length ?? 0) > 1 ? ` +${c!.findings.length - 1}` : ""}
                             </Badge>
                           ) : c ? (
                             <Badge kind="ok">{t("OK")}</Badge>
@@ -181,7 +211,10 @@ export function Discovery() {
                                     ? t("No problems found.")
                                     : c.findings.map((f) => (
                                         <div key={f.code}>
-                                          <Badge kind={f.severity === "critical" ? "bad" : f.severity === "warning" ? "warn" : "info"}>{f.code}</Badge> {f.message}
+                                          <Badge kind={f.severity === "critical" ? "bad" : f.severity === "warning" ? "warn" : "info"}>
+                                            {findingLabels[f.code] ? t(findingLabels[f.code]) : f.code}
+                                          </Badge>{" "}
+                                          {f.params && findingMessages[f.code] ? t(findingMessages[f.code], f.params) : f.message}
                                         </div>
                                       ))}
                                 </dd>

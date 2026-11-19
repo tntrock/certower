@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,6 +25,13 @@ type Finding struct {
 	Code     string   `json:"code"`
 	Severity Severity `json:"severity"`
 	Message  string   `json:"message"`
+	// Params are the values in Message, so a UI can word it in another
+	// language. Keys depend on Code.
+	Params map[string]string `json:"params,omitempty"`
+}
+
+func finding(code string, sev Severity, params map[string]string, format string, args ...any) Finding {
+	return Finding{Code: code, Severity: sev, Message: fmt.Sprintf(format, args...), Params: params}
 }
 
 // Finding codes.
@@ -94,22 +102,25 @@ func Check(chain []*x509.Certificate, opt Options) []Finding {
 
 	switch {
 	case opt.Now.After(leaf.NotAfter):
-		fs = append(fs, Finding{CodeExpired, Critical, fmt.Sprintf("expired on %s", leaf.NotAfter.Format(time.DateOnly))})
+		fs = append(fs, finding(CodeExpired, Critical, map[string]string{"date": leaf.NotAfter.Format(time.DateOnly)},
+			"expired on %s", leaf.NotAfter.Format(time.DateOnly)))
 	case opt.Now.Before(leaf.NotBefore):
-		fs = append(fs, Finding{CodeNotYetValid, Critical, fmt.Sprintf("not valid until %s", leaf.NotBefore.Format(time.DateOnly))})
+		fs = append(fs, finding(CodeNotYetValid, Critical, map[string]string{"date": leaf.NotBefore.Format(time.DateOnly)},
+			"not valid until %s", leaf.NotBefore.Format(time.DateOnly)))
 	case leaf.NotAfter.Sub(opt.Now) < opt.ExpiryWarning:
 		days := int(leaf.NotAfter.Sub(opt.Now).Hours() / 24)
-		fs = append(fs, Finding{CodeExpiringSoon, Warning, fmt.Sprintf("expires in %d days", days)})
+		fs = append(fs, finding(CodeExpiringSoon, Warning, map[string]string{"days": strconv.Itoa(days)}, "expires in %d days", days))
 	}
 
 	if d, ok := distrustedBy(chain); ok && leaf.NotBefore.After(d.after) {
-		fs = append(fs, Finding{CodeDistrustedRoot, Critical, fmt.Sprintf(
+		fs = append(fs, finding(CodeDistrustedRoot, Critical,
+			map[string]string{"root": d.rootCN, "owner": d.org, "by": d.note, "date": d.after.Format(time.DateOnly)},
 			"chains to %q (%s), which %s does not trust for certificates issued after %s",
-			d.rootCN, d.org, d.note, d.after.Format(time.DateOnly))})
+			d.rootCN, d.org, d.note, d.after.Format(time.DateOnly)))
 	}
 
-	if msg := weakKey(leaf); msg != "" {
-		fs = append(fs, Finding{CodeWeakKey, Warning, msg})
+	if f, ok := weakKey(leaf); ok {
+		fs = append(fs, f)
 	}
 
 	for _, c := range chain {
@@ -118,14 +129,15 @@ func Check(chain []*x509.Certificate, opt Options) []Finding {
 			continue
 		}
 		if c.SignatureAlgorithm == x509.SHA1WithRSA || c.SignatureAlgorithm == x509.ECDSAWithSHA1 {
-			fs = append(fs, Finding{CodeSHA1Signature, Critical, fmt.Sprintf("%q is signed with SHA-1", c.Subject.CommonName)})
+			fs = append(fs, finding(CodeSHA1Signature, Critical, map[string]string{"name": c.Subject.CommonName}, "%q is signed with SHA-1", c.Subject.CommonName))
 		}
 	}
 
 	if limit := maxValidity(leaf.NotBefore); leaf.NotAfter.Sub(leaf.NotBefore) > limit+24*time.Hour {
 		// One day of slack: CAs count inclusive seconds differently.
-		fs = append(fs, Finding{CodeValidityTooLong, Warning, fmt.Sprintf(
-			"lifetime of %d days exceeds the %d-day CA/B Forum limit", int(leaf.NotAfter.Sub(leaf.NotBefore).Hours()/24), int(limit.Hours()/24))})
+		days, maxDays := int(leaf.NotAfter.Sub(leaf.NotBefore).Hours()/24), int(limit.Hours()/24)
+		fs = append(fs, finding(CodeValidityTooLong, Warning, map[string]string{"days": strconv.Itoa(days), "max": strconv.Itoa(maxDays)},
+			"lifetime of %d days exceeds the %d-day CA/B Forum limit", days, maxDays))
 	}
 	return fs
 }
@@ -143,18 +155,22 @@ func distrustedBy(chain []*x509.Certificate) (distrust, bool) {
 	return distrust{}, false
 }
 
-func weakKey(c *x509.Certificate) string {
+func weakKey(c *x509.Certificate) (Finding, bool) {
+	var alg string
+	var bits, min int
 	switch k := c.PublicKey.(type) {
 	case *rsa.PublicKey:
-		if k.N.BitLen() < 2048 {
-			return fmt.Sprintf("RSA key is %d bits, minimum is 2048", k.N.BitLen())
-		}
+		alg, bits, min = "RSA", k.N.BitLen(), 2048
 	case *ecdsa.PublicKey:
-		if k.Curve.Params().BitSize < 256 {
-			return fmt.Sprintf("ECDSA key is %d bits, minimum is 256", k.Curve.Params().BitSize)
-		}
+		alg, bits, min = "ECDSA", k.Curve.Params().BitSize, 256
+	default:
+		return Finding{}, false
 	}
-	return ""
+	if bits >= min {
+		return Finding{}, false
+	}
+	return finding(CodeWeakKey, Warning, map[string]string{"alg": alg, "bits": strconv.Itoa(bits), "min": strconv.Itoa(min)},
+		"%s key is %d bits, minimum is %d", alg, bits, min), true
 }
 
 func isSelfSigned(c *x509.Certificate) bool {

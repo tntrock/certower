@@ -36,7 +36,7 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[]): Loaded<T> {
 
 export function useFormat() {
   const { lang, t } = useI18n();
-  const locale = lang === "zh-TW" ? "zh-TW" : "en";
+  const locale = lang;
   const date = (s?: string) => (s ? new Date(s).toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" }) : "—");
   const dateTime = (s?: string) =>
     s ? new Date(s).toLocaleString(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
@@ -83,6 +83,7 @@ export function Loading() {
 }
 
 // Friendlier, translatable text for API error codes users commonly see.
+// i18n-table
 const codeMessages: Record<string, string> = {
   invalid_credentials: "Invalid email or password.",
   too_many_attempts: "Too many failed sign-in attempts. Try again in a few minutes.",

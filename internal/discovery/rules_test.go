@@ -118,3 +118,30 @@ func TestValidityTooLong(t *testing.T) {
 		t.Error("199-day cert flagged")
 	}
 }
+
+// Params let the UI word findings in other languages; they must match the
+// message.
+func TestFindingParams(t *testing.T) {
+	now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+	byCode := func(fs []Finding) map[string]Finding {
+		m := map[string]Finding{}
+		for _, f := range fs {
+			m[f.Code] = f
+		}
+		return m
+	}
+	ca := newCA(t, "Root")
+	fs := byCode(Check([]*x509.Certificate{ca.leaf(t, now.Add(-85*day), 90*day)}, Options{Now: now}))
+	if p := fs[CodeExpiringSoon].Params; p["days"] != "5" {
+		t.Errorf("expiring_soon params = %v (%s)", p, fs[CodeExpiringSoon].Message)
+	}
+	fs = byCode(Check([]*x509.Certificate{ca.leaf(t, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), 397*day)}, Options{Now: now}))
+	if p := fs[CodeValidityTooLong].Params; p["days"] != "397" || p["max"] != "200" {
+		t.Errorf("validity_too_long params = %v", p)
+	}
+	cht := newCA(t, "HiPKI Root CA - G1")
+	fs = byCode(Check([]*x509.Certificate{cht.leaf(t, time.Date(2025, 9, 1, 0, 0, 0, 0, time.UTC), 397*day)}, Options{Now: now}))
+	if p := fs[CodeDistrustedRoot].Params; p["root"] != "HiPKI Root CA - G1" || p["date"] != "2025-07-31" || p["owner"] == "" || p["by"] == "" {
+		t.Errorf("distrusted_root params = %v", p)
+	}
+}

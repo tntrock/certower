@@ -263,6 +263,7 @@ export function NewCertificate() {
 
 // ------------------------------------------------------------------ detail
 
+// i18n-table
 const revokeReasons: [number, string][] = [
   [0, "Unspecified"],
   [1, "Key compromise"],

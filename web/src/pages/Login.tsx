@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../api";
 import { ErrorBox, useAction } from "../components/ui";
-import { useI18n } from "../i18n";
+import { LanguagePicker, useI18n } from "../i18n";
 
 type Providers = { password: boolean; oidc: { name: string; loginUrl: string } | null };
 
 // Codes the server puts in ?sso_error= when single sign-on fails.
+// i18n-table
 const ssoErrors: Record<string, string> = {
   sso_no_account: "No Certower account exists for this email. Ask an administrator to add you.",
   sso_email_unverified: "Your identity provider has not verified this email address.",
@@ -15,10 +16,11 @@ const ssoErrors: Record<string, string> = {
   sso_no_email: "The identity provider did not share an email address.",
   sso_expired: "The sign-in attempt expired. Please try again.",
   sso_unavailable: "The identity provider is unreachable. Try again later.",
+  sso_failed: "Single sign-on failed. Please try again.",
 };
 
 export function Login({ onDone }: { onDone: () => void }) {
-  const { t, lang, setLang } = useI18n();
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [providers, setProviders] = useState<Providers | null>(null);
@@ -46,7 +48,7 @@ export function Login({ onDone }: { onDone: () => void }) {
         <div className="tagline">{t("Certificate lifecycle control tower")}</div>
         {ssoError && !error && (
           <div className="alert bad" role="alert">
-            {t(ssoErrors[ssoError] ?? "Single sign-on failed. Please try again.")}
+            {t(ssoErrors[ssoError] ?? ssoErrors.sso_failed)}
           </div>
         )}
         <ErrorBox error={error} />
@@ -70,9 +72,7 @@ export function Login({ onDone }: { onDone: () => void }) {
           {busy ? t("Signing in…") : t("Sign in")}
         </button>
         <div style={{ textAlign: "center", marginTop: 16 }}>
-          <button type="button" className="small" onClick={() => setLang(lang === "en" ? "zh-TW" : "en")}>
-            {lang === "en" ? "中文" : "English"}
-          </button>
+          <LanguagePicker className="small" />
         </div>
       </form>
     </div>

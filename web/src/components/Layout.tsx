@@ -1,13 +1,13 @@
 import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
 import { api, type Project } from "../api";
-import { useI18n } from "../i18n";
+import { LanguagePicker, useI18n } from "../i18n";
 import { useSession } from "../session";
 import { useLoad } from "./ui";
 
 export function Layout() {
   const { org, project } = useParams();
   const { me, orgs, logout } = useSession();
-  const { t, lang, setLang } = useI18n();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const projects = useLoad(() => (org ? api.get<Project[]>(`/orgs/${org}/projects`) : Promise.resolve([] as Project[])), [org]);
 
@@ -82,9 +82,7 @@ export function Layout() {
         <div className="sidebar-footer">
           <div title={me.user?.email}>{me.user?.email}</div>
           <div className="actions">
-            <button className="small" onClick={() => setLang(lang === "en" ? "zh-TW" : "en")}>
-              {lang === "en" ? "中文" : "English"}
-            </button>
+            <LanguagePicker className="small" />
             <button className="small" onClick={() => logout().then(() => navigate("/"))}>
               {t("Sign out")}
             </button>
