@@ -7,8 +7,8 @@ import (
 	"errors"
 	"log/slog"
 	"mime"
-	"net"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -42,6 +42,11 @@ type Server struct {
 	// SecureCookies sets the Secure flag on the session cookie. Enable it
 	// whenever the UI is served over HTTPS.
 	SecureCookies bool
+	// TrustedProxies are reverse proxies whose X-Forwarded-For header is
+	// believed when working out a client's address.
+	TrustedProxies []netip.Prefix
+
+	logins *loginLimiter
 }
 
 // Deps are the services the API uses.
@@ -59,7 +64,8 @@ type Deps struct {
 
 // New returns a Server.
 func New(d Deps) *Server {
-	return &Server{store: d.Store, log: d.Log, engine: d.Engine, configs: d.Configs, vault: d.Vault, agentCA: d.AgentCA, agentURL: d.AgentURL, SessionTTL: 12 * time.Hour}
+	return &Server{store: d.Store, log: d.Log, engine: d.Engine, configs: d.Configs, vault: d.Vault, agentCA: d.AgentCA, agentURL: d.AgentURL,
+		SessionTTL: 12 * time.Hour, logins: newLoginLimiter()}
 }
 
 // Handler returns the HTTP handler for the API.
@@ -348,7 +354,7 @@ func (s *Server) audit(r *http.Request, p *principal, orgID, projectID, action, 
 		OrgID: orgID, ProjectID: projectID, ActorType: typ, ActorID: id,
 		Action: action, ObjectType: objType, ObjectID: objID,
 		Before: marshalOrNil(before), After: marshalOrNil(after),
-		SourceIP: clientIP(r),
+		SourceIP: s.clientIP(r),
 	}
 	if err := s.store.InsertAudit(r.Context(), e); err != nil {
 		// The action already happened. Losing its audit record is serious,
@@ -366,16 +372,6 @@ func marshalOrNil(v any) json.RawMessage {
 		return nil
 	}
 	return b
-}
-
-// clientIP is the TCP peer. X-Forwarded-For is not trusted until trusted
-// proxies are configurable.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return ""
-	}
-	return host
 }
 
 // ---------------------------------------------------------------- JSON helpers

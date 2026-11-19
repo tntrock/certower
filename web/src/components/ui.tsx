@@ -82,6 +82,12 @@ export function Loading() {
   return <div className="loading">{t("Loading…")}</div>;
 }
 
+// Friendlier, translatable text for API error codes users commonly see.
+const codeMessages: Record<string, string> = {
+  invalid_credentials: "Invalid email or password.",
+  too_many_attempts: "Too many failed sign-in attempts. Try again in a few minutes.",
+};
+
 export function ErrorBox({ error }: { error: unknown }) {
   const { t } = useI18n();
   if (!error) return null;
@@ -90,7 +96,7 @@ export function ErrorBox({ error }: { error: unknown }) {
     return (
       <div className="alert bad" role="alert">
         {error.status === 403 ? t("You don't have permission to do this.") + " " : ""}
-        {error.message}
+        {codeMessages[error.code] ? t(codeMessages[error.code]) : error.message}
         {violations && (
           <ul>
             {violations.map((v, i) => (

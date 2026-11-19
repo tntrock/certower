@@ -113,8 +113,14 @@ func serve(args []string) error {
 	dnsOpts := dnsFlags(fs)
 	secure := fs.Bool("secure-cookies", os.Getenv("CERTOWER_SECURE_COOKIES") == "true",
 		"mark session cookies Secure; enable behind HTTPS (env CERTOWER_SECURE_COOKIES=true)")
+	trustedProxies := fs.String("trusted-proxies", envOr("CERTOWER_TRUSTED_PROXIES", ""),
+		"comma-separated reverse proxy addresses or CIDRs whose X-Forwarded-For is trusted for client addresses (env CERTOWER_TRUSTED_PROXIES)")
 	fs.Parse(args)
 
+	proxies, err := api.ParseTrustedProxies(*trustedProxies)
+	if err != nil {
+		return fmt.Errorf("-trusted-proxies: %w", err)
+	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if err := dnsOpts.apply(log); err != nil {
 		return err
@@ -175,6 +181,7 @@ func serve(args []string) error {
 
 	apiSrv := api.New(api.Deps{Store: st, Log: log, Engine: eng, Configs: configs, Vault: vault, AgentCA: agentCA, AgentURL: *agentURL})
 	apiSrv.SecureCookies = *secure
+	apiSrv.TrustedProxies = proxies
 	srv := &http.Server{
 		Addr:              *listen,
 		Handler:           withUI(apiSrv.Handler()),

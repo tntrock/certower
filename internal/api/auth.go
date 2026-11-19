@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,13 +22,19 @@ type loginResponse struct {
 	User      *store.User `json:"user"`
 }
 
-// TODO: rate-limit failed logins per account and per source address.
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if !decode(w, r, &req) {
 		return
 	}
-	u, err := s.store.GetUserByEmail(r.Context(), strings.ToLower(strings.TrimSpace(req.Email)))
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	ip := s.clientIP(r)
+	if wait := s.logins.check(email, ip); wait > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		writeError(w, http.StatusTooManyRequests, "too_many_attempts", "too many failed logins; try again later")
+		return
+	}
+	u, err := s.store.GetUserByEmail(r.Context(), email)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		s.internal(w, err)
 		return
@@ -38,9 +45,12 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	// Always verify, so unknown accounts take as long as wrong passwords.
 	if !auth.VerifyPassword(hash, req.Password) {
+		s.logins.fail(email, ip)
+		s.log.Warn("failed login", "email", email, "ip", ip)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
 		return
 	}
+	s.logins.succeed(email)
 
 	token, tokenHash := auth.NewToken(auth.SessionPrefix)
 	expires := time.Now().Add(s.SessionTTL).UTC()

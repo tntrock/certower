@@ -215,6 +215,8 @@ export const zhTW: Record<string, string> = {
   "You are not a member of any organization yet.": "你目前還不屬於任何組織。",
   "You can only grant roles whose permissions you hold yourself.": "只能授予你自己擁有其全部權限的角色。",
   "You don't have permission to do this.": "你沒有執行此操作的權限。",
+  "Invalid email or password.": "電子郵件或密碼錯誤。",
+  "Too many failed sign-in attempts. Try again in a few minutes.": "登入失敗次數過多，請過幾分鐘後再試。",
   "custom": "自訂",
   "encrypted; issued immediately.": "加密保存，立即簽發。",
   "files (any service)": "files（任何服務）",
